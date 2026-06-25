@@ -1,12 +1,26 @@
 import { useState } from 'react'
+import MapView from './components/MapView'
 
 type Tab = 'mapa' | 'visita' | 'agua' | 'reportes'
+
+const NAV_ITEMS: { id: Tab; label: string }[] = [
+  { id: 'mapa',     label: 'Mapa' },
+  { id: 'visita',   label: 'Visita' },
+  { id: 'agua',     label: 'Agua' },
+  { id: 'reportes', label: 'Reportes' },
+]
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('mapa')
 
   return (
-    <div style={{ minHeight: '100dvh', background: 'var(--color-bg)' }}>
+    <div style={{
+      height: '100dvh',
+      display: 'flex',
+      flexDirection: 'column',
+      background: 'var(--color-bg)',
+    }}>
+      {/* Header */}
       <header style={{
         background: 'var(--color-surface)',
         borderBottom: '1px solid var(--color-border)',
@@ -14,6 +28,7 @@ export default function App() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
+        flexShrink: 0,
       }}>
         <div>
           <div style={{ fontWeight: 500, fontSize: 16, letterSpacing: '-0.01em' }}>
@@ -32,33 +47,56 @@ export default function App() {
         }}>E</div>
       </header>
 
-      <main style={{ padding: '20px', maxWidth: 480, margin: '0 auto' }}>
-        <p style={{ color: 'var(--color-text-muted)', fontSize: 14 }}>
-          Scaffold listo — aquí van las pantallas de {tab}.
-        </p>
+      {/* Main content */}
+      <main style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+        {tab === 'mapa' && <MapView />}
+        {tab === 'visita' && (
+          <div style={{ padding: 20, color: 'var(--color-text-muted)', fontSize: 14 }}>
+            Pantalla de visita — próximamente
+          </div>
+        )}
+        {tab === 'agua' && (
+          <div style={{ padding: 20, color: 'var(--color-text-muted)', fontSize: 14 }}>
+            Pantalla de agua — próximamente
+          </div>
+        )}
+        {tab === 'reportes' && (
+          <div style={{ padding: 20, color: 'var(--color-text-muted)', fontSize: 14 }}>
+            Pantalla de reportes — próximamente
+          </div>
+        )}
       </main>
 
+      {/* Bottom nav */}
       <nav style={{
-        position: 'fixed', bottom: 0, left: 0, right: 0,
         background: 'var(--color-surface)',
         borderTop: '1px solid var(--color-border)',
         display: 'flex',
+        flexShrink: 0,
       }}>
-        {(['mapa', 'visita', 'agua', 'reportes'] as Tab[]).map(t => (
+        {NAV_ITEMS.map(item => (
           <button
-            key={t}
-            onClick={() => setTab(t)}
+            key={item.id}
+            onClick={() => setTab(item.id)}
             style={{
-              flex: 1, padding: '12px 0 14px',
-              background: 'none', border: 'none',
-              fontSize: 11, fontWeight: tab === t ? 500 : 400,
-              color: tab === t ? 'var(--color-accent)' : 'var(--color-text-muted)',
-              borderTop: tab === t ? '2px solid var(--color-accent)' : '2px solid transparent',
+              flex: 1,
+              padding: '12px 0 14px',
+              background: 'none',
+              border: 'none',
+              borderTop: tab === item.id
+                ? '2px solid var(--color-accent)'
+                : '2px solid transparent',
+              fontSize: 12,
+              fontWeight: tab === item.id ? 500 : 400,
+              color: tab === item.id
+                ? 'var(--color-accent)'
+                : 'var(--color-text-muted)',
               transition: 'color .15s',
-              textTransform: 'capitalize',
+              cursor: 'pointer',
+              fontFamily: 'var(--font-sans)',
             }}
           >
-            {t}
+            {item.label}
           </button>
         ))}
       </nav>

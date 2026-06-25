@@ -12,7 +12,9 @@
     "deploy": "gh-pages -d dist"
   },
   "dependencies": {
+    "@googlemaps/js-api-loader": "^2.1.1",
     "@supabase/supabase-js": "^2.108.2",
+    "@types/google.maps": "^3.65.2",
     "@types/maplibre-gl": "^1.13.2",
     "gh-pages": "^6.3.0",
     "maplibre-gl": "^5.24.0",
@@ -33,5 +35,5 @@
     "typescript-eslint": "^8.59.2",
     "vite": "^8.0.12"
   },
-  "homepage": "https://TU_USUARIO.github.io/biomonitor"
+  "homepage": "https://cartografunk.github.io/biomonitor"
 }
