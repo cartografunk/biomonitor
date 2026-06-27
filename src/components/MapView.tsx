@@ -59,7 +59,7 @@ export default function MapView() {
       const map = new Map(mapRef.current, {
         center: CENTER,
         zoom: 16,
-        mapId: 'biomonitor',
+        mapId: '311d7a7cdaf062c1ac656a2f',
         disableDefaultUI: true,
         zoomControl: true,
         mapTypeId: 'satellite',
