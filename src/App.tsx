@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import MapView from './components/MapView'
+import VisitaView from './components/VisitaView';
+import AguaView from './components/AguaView';
 
 type Tab = 'mapa' | 'visita' | 'agua' | 'reportes'
 
@@ -50,16 +52,8 @@ export default function App() {
       {/* Main content */}
       <main style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
         {tab === 'mapa' && <MapView />}
-        {tab === 'visita' && (
-          <div style={{ padding: 20, color: 'var(--color-text-muted)', fontSize: 14 }}>
-            Pantalla de visita — próximamente
-          </div>
-        )}
-        {tab === 'agua' && (
-          <div style={{ padding: 20, color: 'var(--color-text-muted)', fontSize: 14 }}>
-            Pantalla de agua — próximamente
-          </div>
-        )}
+        {tab === 'visita' && <VisitaView />}
+        {tab === 'agua' && (<AguaView />)}
         {tab === 'reportes' && (
           <div style={{ padding: 20, color: 'var(--color-text-muted)', fontSize: 14 }}>
             Pantalla de reportes — próximamente
