@@ -1,7 +1,11 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { supabase } from './lib/supabase'
+import type { Session } from '@supabase/supabase-js'
 import MapView from './components/MapView'
-import VisitaView from './components/VisitaView';
-import AguaView from './components/AguaView';
+import VisitaView from './components/VisitaView'
+import AguaView from './components/AguaView'
+import ReportesView from './components/ReportesView'
+import LoginView from './components/LoginView'
 
 type Tab = 'mapa' | 'visita' | 'agua' | 'reportes'
 
@@ -14,6 +18,35 @@ const NAV_ITEMS: { id: Tab; label: string }[] = [
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('mapa')
+  const [session, setSession] = useState<Session | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session)
+      setLoading(false)
+    })
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session)
+    })
+    return () => subscription.unsubscribe()
+  }, [])
+
+  if (loading) return (
+    <div style={{
+      height: '100dvh', display: 'flex',
+      alignItems: 'center', justifyContent: 'center',
+      background: 'var(--color-bg)',
+    }}>
+      <div style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>Cargando...</div>
+    </div>
+  )
+
+  if (!session) return <LoginView />
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+  }
 
   return (
     <div style={{
@@ -40,25 +73,28 @@ export default function App() {
             Bordo Benito Juárez
           </div>
         </div>
-        <div style={{
-          width: 32, height: 32, borderRadius: '50%',
-          background: 'var(--color-accent-light)',
-          color: 'var(--color-accent)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontWeight: 500, fontSize: 13,
-        }}>E</div>
+        <button
+          onClick={handleLogout}
+          title="Cerrar sesión"
+          style={{
+            width: 32, height: 32, borderRadius: '50%',
+            background: 'var(--color-accent-light)',
+            color: 'var(--color-accent)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontWeight: 500, fontSize: 13,
+            border: 'none', cursor: 'pointer',
+          }}
+        >
+          {session.user.email?.[0].toUpperCase()}
+        </button>
       </header>
 
       {/* Main content */}
       <main style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
-        {tab === 'mapa' && <MapView />}
-        {tab === 'visita' && <VisitaView />}
-        {tab === 'agua' && (<AguaView />)}
-        {tab === 'reportes' && (
-          <div style={{ padding: 20, color: 'var(--color-text-muted)', fontSize: 14 }}>
-            Pantalla de reportes — próximamente
-          </div>
-        )}
+        {tab === 'mapa'     && <MapView />}
+        {tab === 'visita'   && <VisitaView />}
+        {tab === 'agua'     && <AguaView />}
+        {tab === 'reportes' && <ReportesView />}
       </main>
 
       {/* Bottom nav */}
