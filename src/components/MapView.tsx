@@ -1,6 +1,8 @@
 /// <reference types="@types/google.maps" />
 import { useEffect, useRef, useState } from 'react'
 import { importLibrary, setOptions } from '@googlemaps/js-api-loader'
+import type { Session } from '@supabase/supabase-js'
+import { supabase } from '../lib/supabase'
 
 const FIXED_POINTS = [
   { id: 1, label: 'Punto 1', required_photos: 2, coords: { lat: 20.61893648698355, lng: -100.39686279037221 } },
@@ -18,28 +20,85 @@ interface PointState {
   status: PointStatus
 }
 
+interface VisitPointStatusRow {
+  point_number: number
+  photo_status: 'completo' | 'pendiente'
+}
+
 const STATUS_COLOR: Record<PointStatus, string> = {
   completo:    '#38B000',
   pendiente:   '#E85D04',
   sin_registro:'#6B6B67',
 }
 
-export default function MapView() {
+function getMexicoCityDate() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Mexico_City',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
+}
+
+const EMPTY_POINT_STATES: PointState[] = FIXED_POINTS.map(point => ({
+  id: point.id,
+  status: 'sin_registro',
+}))
+
+export default function MapView({ session }: { session: Session }) {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstance = useRef<google.maps.Map | null>(null)
   const markersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([])
+  const markerPinsRef = useRef<Map<number, HTMLDivElement>>(new Map())
   const [selectedPoint, setSelectedPoint] = useState<number | null>(null)
-  const [visitDate, setVisitDate] = useState(new Date().toISOString().split('T')[0])
+  const [visitDate, setVisitDate] = useState(getMexicoCityDate())
 
   // Demo states — will come from Supabase later
-  const [pointStates] = useState<PointState[]>([
-    { id: 1, status: 'completo' },
-    { id: 2, status: 'pendiente' },
-    { id: 3, status: 'sin_registro' },
+  const [pointStates, setPointStates] = useState<PointState[]>([
+    ...EMPTY_POINT_STATES,
   ])
 
   useEffect(() => {
+    if (!session.user.id) return
+
     let isMounted = true
+
+    async function loadPointStates() {
+      const { data, error } = await supabase
+        .from('visit_point_status')
+        .select('point_number, photo_status')
+        .eq('visit_date', visitDate)
+
+      if (!isMounted) return
+
+      if (error || !data || data.length === 0) {
+        setPointStates(EMPTY_POINT_STATES)
+        return
+      }
+
+      const statusByPoint = new Map(
+        (data as VisitPointStatusRow[]).map(row => [
+          row.point_number,
+          row.photo_status === 'completo' ? 'completo' : 'pendiente',
+        ] as const)
+      )
+
+      setPointStates(FIXED_POINTS.map(point => ({
+        id: point.id,
+        status: statusByPoint.get(point.id) ?? 'sin_registro',
+      })))
+    }
+
+    loadPointStates()
+
+    return () => {
+      isMounted = false
+    }
+  }, [session.user.id, visitDate])
+
+  useEffect(() => {
+    let isMounted = true
+    const markerPins = markerPinsRef.current
 
     if (!googleMapsOptionsSet) {
       setOptions({
@@ -69,14 +128,10 @@ export default function MapView() {
 
       // Create markers for each fixed point
       markersRef.current = FIXED_POINTS.map(point => {
-        const state = pointStates.find(s => s.id === point.id)
-        const status = state?.status ?? 'sin_registro'
-        const color = STATUS_COLOR[status]
-
         const pin = document.createElement('div')
         pin.style.cssText = `
           width: 32px; height: 32px; border-radius: 50%;
-          background: ${color}; border: 2px solid white;
+          background: ${STATUS_COLOR.sin_registro}; border: 2px solid white;
           display: flex; align-items: center; justify-content: center;
           font-family: 'DM Sans', sans-serif;
           font-size: 12px; font-weight: 500; color: white;
@@ -84,6 +139,7 @@ export default function MapView() {
           cursor: pointer;
         `
         pin.textContent = `P${point.id}`
+        markerPins.set(point.id, pin)
 
         const marker = new AdvancedMarkerElement({
           map,
@@ -108,8 +164,18 @@ export default function MapView() {
       isMounted = false
       markersRef.current.forEach(m => m.map = null)
       markersRef.current = []
+      markerPins.clear()
     }
   }, [])
+
+  useEffect(() => {
+    pointStates.forEach(state => {
+      const pin = markerPinsRef.current.get(state.id)
+      if (pin) {
+        pin.style.background = STATUS_COLOR[state.status]
+      }
+    })
+  }, [pointStates])
 
   const selected = FIXED_POINTS.find(p => p.id === selectedPoint)
   const selectedState = pointStates.find(s => s.id === selectedPoint)

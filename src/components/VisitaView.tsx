@@ -1,14 +1,34 @@
-import { useState, useRef } from 'react'
-import type { VisitPointStatus } from '../types'
+import { useCallback, useEffect, useState, useRef } from 'react'
+import type { Session } from '@supabase/supabase-js'
+import { supabase } from '../lib/supabase'
+import type { UserRole, VisitPointStatus } from '../types'
 
 // ── Mock data ────────────────────────────────────────────────
-const TODAY = new Date().toISOString().split('T')[0]
+function getMexicoCityDate() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Mexico_City',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
+}
 
-const MOCK_POINTS: VisitPointStatus[] = [
-  { visit_id: 'v1', visit_date: TODAY, point_number: 1, label: 'Punto 1', required_photos: 2, is_lab_point: false, has_water_sampling: false, uploaded_photos: 0, photo_status: 'pendiente', has_water_measurements: false },
-  { visit_id: 'v1', visit_date: TODAY, point_number: 2, label: 'Punto 2', required_photos: 1, is_lab_point: false, has_water_sampling: false, uploaded_photos: 0, photo_status: 'pendiente', has_water_measurements: false },
-  { visit_id: 'v1', visit_date: TODAY, point_number: 3, label: 'Punto 3', required_photos: 1, is_lab_point: false, has_water_sampling: false, uploaded_photos: 0, photo_status: 'pendiente', has_water_measurements: false },
-  { visit_id: 'v1', visit_date: TODAY, point_number: 4, label: 'Punto 4 — Cono Imhoff', required_photos: 1, is_lab_point: true, has_water_sampling: true, uploaded_photos: 0, photo_status: 'pendiente', has_water_measurements: false },
+function getMexicoCityDisplayDate() {
+  return new Intl.DateTimeFormat('es-MX', {
+    timeZone: 'America/Mexico_City',
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  }).format(new Date())
+}
+
+const TODAY = getMexicoCityDate()
+
+const DEFAULT_POINTS: VisitPointStatus[] = [
+  { visit_id: '', visit_date: TODAY, point_number: 1, label: 'Punto 1', required_photos: 2, is_lab_point: false, has_water_sampling: false, uploaded_photos: 0, photo_status: 'pendiente', has_water_measurements: false },
+  { visit_id: '', visit_date: TODAY, point_number: 2, label: 'Punto 2', required_photos: 1, is_lab_point: false, has_water_sampling: false, uploaded_photos: 0, photo_status: 'pendiente', has_water_measurements: false },
+  { visit_id: '', visit_date: TODAY, point_number: 3, label: 'Punto 3', required_photos: 1, is_lab_point: false, has_water_sampling: false, uploaded_photos: 0, photo_status: 'pendiente', has_water_measurements: false },
+  { visit_id: '', visit_date: TODAY, point_number: 4, label: 'Punto 4 — Cono Imhoff', required_photos: 1, is_lab_point: true, has_water_sampling: true, uploaded_photos: 0, photo_status: 'pendiente', has_water_measurements: false },
 ]
 
 // ── Types ────────────────────────────────────────────────────
@@ -44,17 +64,24 @@ const STATUS_COLOR: Record<string, string> = {
   pendiente: 'var(--color-warning)',
 }
 
-function photoStatus(point: VisitPointStatus, draft: PointDraft): 'completo' | 'pendiente' {
-  return draft.photos.length >= point.required_photos ? 'completo' : 'pendiente'
+function pointStatus(point: VisitPointStatus): 'completo' | 'pendiente' {
+  return point.photo_status === 'completo' ? 'completo' : 'pendiente'
+}
+
+function numericOrNull(value: string) {
+  if (value.trim() === '') return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
 }
 
 // ── Sub-components ───────────────────────────────────────────
 
-function PhotoCarousel({ photos, onAdd, onRemove, required }: {
+function PhotoCarousel({ photos, onAdd, onRemove, required, disabled }: {
   photos: LocalPhoto[]
   onAdd: (files: FileList) => void
   onRemove: (id: string) => void
   required: number
+  disabled?: boolean
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [current, setCurrent] = useState(0)
@@ -72,12 +99,14 @@ function PhotoCarousel({ photos, onAdd, onRemove, required }: {
         </span>
         <button
           onClick={() => inputRef.current?.click()}
+          disabled={disabled}
           style={{
             display: 'flex', alignItems: 'center', gap: 4,
             background: 'var(--color-accent-light)', border: 'none',
             borderRadius: 'var(--radius-sm)', padding: '5px 10px',
             fontSize: 12, fontWeight: 500, color: 'var(--color-accent)',
-            cursor: 'pointer',
+            cursor: disabled ? 'default' : 'pointer',
+            opacity: disabled ? 0.55 : 1,
           }}
         >
           + Foto
@@ -96,11 +125,13 @@ function PhotoCarousel({ photos, onAdd, onRemove, required }: {
       {photos.length === 0 ? (
         <button
           onClick={() => inputRef.current?.click()}
+          disabled={disabled}
           style={{
             width: '100%', height: 120, border: '1.5px dashed var(--color-border-strong)',
             borderRadius: 'var(--radius-md)', background: 'var(--color-bg)',
             display: 'flex', flexDirection: 'column', alignItems: 'center',
-            justifyContent: 'center', gap: 6, cursor: 'pointer',
+            justifyContent: 'center', gap: 6, cursor: disabled ? 'default' : 'pointer',
+            opacity: disabled ? 0.55 : 1,
           }}
         >
           <span style={{ fontSize: 24 }}>📷</span>
@@ -123,12 +154,14 @@ function PhotoCarousel({ photos, onAdd, onRemove, required }: {
               onRemove(photos[current].id)
               setCurrent(c => Math.max(0, c - 1))
             }}
+            disabled={disabled}
             style={{
               position: 'absolute', top: 8, right: 8,
               background: 'rgba(0,0,0,0.55)', border: 'none',
               borderRadius: '50%', width: 28, height: 28,
               color: '#fff', fontSize: 16, cursor: 'pointer',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
+              opacity: disabled ? 0.55 : 1,
             }}
           >×</button>
 
@@ -181,12 +214,16 @@ function PhotoCarousel({ photos, onAdd, onRemove, required }: {
 }
 
 // ── Point Drawer ─────────────────────────────────────────────
-function PointDrawer({ point, draft, onChange, onClose }: {
+function PointDrawer({ point, draft, onChange, onClose, onSave, canEdit }: {
   point: VisitPointStatus
   draft: PointDraft
   onChange: (d: PointDraft) => void
   onClose: () => void
+  onSave: () => Promise<void>
+  canEdit: boolean
 }) {
+  const [saving, setSaving] = useState(false)
+
   const addPhotos = (files: FileList) => {
     const newPhotos: LocalPhoto[] = Array.from(files).map(f => ({
       id: crypto.randomUUID(),
@@ -200,7 +237,7 @@ function PointDrawer({ point, draft, onChange, onClose }: {
     onChange({ ...draft, photos: draft.photos.filter(p => p.id !== id) })
   }
 
-  const status = photoStatus(point, draft)
+  const status = pointStatus(point)
 
   return (
     <>
@@ -251,6 +288,7 @@ function PointDrawer({ point, draft, onChange, onClose }: {
           onAdd={addPhotos}
           onRemove={removePhoto}
           required={point.required_photos}
+          disabled={!canEdit}
         />
 
         {/* Observations */}
@@ -261,6 +299,7 @@ function PointDrawer({ point, draft, onChange, onClose }: {
           <textarea
             value={draft.observations}
             onChange={e => onChange({ ...draft, observations: e.target.value })}
+            disabled={!canEdit}
             placeholder="Condiciones del punto, hallazgos, novedades..."
             rows={4}
             style={{
@@ -271,6 +310,7 @@ function PointDrawer({ point, draft, onChange, onClose }: {
               fontSize: 14, fontFamily: 'var(--font-sans)',
               color: 'var(--color-text-primary)',
               background: 'var(--color-bg)',
+              opacity: canEdit ? 1 : 0.65,
               resize: 'none', outline: 'none',
               lineHeight: 1.5,
             }}
@@ -304,6 +344,7 @@ function PointDrawer({ point, draft, onChange, onClose }: {
                     inputMode="decimal"
                     step="any"
                     value={draft.water?.[key] ?? ''}
+                    disabled={!canEdit}
                     onChange={e => onChange({
                       ...draft,
                       water: { ...(draft.water ?? emptyWater), [key]: e.target.value }
@@ -315,6 +356,7 @@ function PointDrawer({ point, draft, onChange, onClose }: {
                       fontSize: 15, fontFamily: 'var(--font-mono)',
                       color: 'var(--color-text-primary)',
                       background: 'var(--color-bg)', outline: 'none',
+                      opacity: canEdit ? 1 : 0.65,
                     }}
                   />
                   {unit && (
@@ -328,16 +370,28 @@ function PointDrawer({ point, draft, onChange, onClose }: {
 
         {/* Save */}
         <button
-          onClick={onClose}
+          onClick={async () => {
+            setSaving(true)
+            try {
+              await onSave()
+              onClose()
+            } catch {
+              // Error is shown by the parent view.
+            } finally {
+              setSaving(false)
+            }
+          }}
+          disabled={saving || !canEdit}
           style={{
             marginTop: 20, width: '100%',
             background: 'var(--color-accent)', color: '#fff',
             border: 'none', borderRadius: 'var(--radius-md)',
             padding: '13px 0', fontSize: 15, fontWeight: 600,
-            cursor: 'pointer', fontFamily: 'var(--font-sans)',
+            cursor: saving || !canEdit ? 'default' : 'pointer', fontFamily: 'var(--font-sans)',
+            opacity: saving || !canEdit ? 0.7 : 1,
           }}
         >
-          Guardar punto
+          {!canEdit ? 'Solo lectura' : saving ? 'Guardando...' : 'Guardar punto'}
         </button>
       </div>
     </>
@@ -350,7 +404,7 @@ function PointCard({ point, draft, onClick }: {
   draft: PointDraft
   onClick: () => void
 }) {
-  const status = photoStatus(point, draft)
+  const status = pointStatus(point)
   const color = STATUS_COLOR[status]
 
   return (
@@ -372,7 +426,8 @@ function PointCard({ point, draft, onClick }: {
           {point.label}
         </div>
         <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 3 }}>
-          {draft.photos.length}/{point.required_photos} foto{point.required_photos > 1 ? 's' : ''}
+          {point.uploaded_photos}/{point.required_photos} foto{point.required_photos > 1 ? 's' : ''}
+          {draft.photos.length > 0 && ` Â· ${draft.photos.length} local${draft.photos.length > 1 ? 'es' : ''}`}
           {point.is_lab_point && ' · Laboratorio'}
         </div>
       </div>
@@ -385,26 +440,192 @@ function PointCard({ point, draft, onClick }: {
 }
 
 // ── Main ─────────────────────────────────────────────────────
-export default function VisitaView() {
-  const [hasVisit, setHasVisit] = useState(false)
+export default function VisitaView({ session, role }: { session: Session; role: UserRole | null }) {
+  const [visitId, setVisitId] = useState<string | null>(null)
+  const [fixedPointIds, setFixedPointIds] = useState<Record<number, string>>({})
+  const [loading, setLoading] = useState(true)
+  const [creatingVisit, setCreatingVisit] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [activePoint, setActivePoint] = useState<number | null>(null)
+  const [points, setPoints] = useState<VisitPointStatus[]>(DEFAULT_POINTS)
   const [drafts, setDrafts] = useState<Record<number, PointDraft>>(
-    Object.fromEntries(MOCK_POINTS.map(p => [p.point_number, { photos: [], observations: '' }]))
+    Object.fromEntries(DEFAULT_POINTS.map(p => [p.point_number, { photos: [], observations: '' }]))
   )
+  const canEdit = role === 'editor'
+
+  const loadPointStatus = useCallback(async (currentVisitId: string) => {
+    const { data, error: statusError } = await supabase
+      .from('visit_point_status')
+      .select('*')
+      .eq('visit_date', TODAY)
+      .order('point_number')
+
+    if (statusError) {
+      setError('No se pudo cargar el estado de los puntos.')
+      return
+    }
+
+    const statusRows = (data ?? []) as VisitPointStatus[]
+    setPoints(
+      statusRows.length > 0
+        ? statusRows
+        : DEFAULT_POINTS.map(point => ({
+            ...point,
+            visit_id: currentVisitId,
+            visit_date: TODAY,
+          }))
+    )
+  }, [])
+
+  useEffect(() => {
+    let isMounted = true
+
+    async function loadVisit() {
+      setLoading(true)
+      setError(null)
+
+      const fixedPointsResult = await supabase
+        .from('fixed_points')
+        .select('id, point_number')
+
+      if (!isMounted) return
+
+      if (fixedPointsResult.error) {
+        setError('No se pudieron cargar los puntos fijos.')
+        setLoading(false)
+        return
+      }
+
+      const ids = Object.fromEntries(
+        (fixedPointsResult.data ?? []).map(point => [point.point_number, point.id])
+      )
+      setFixedPointIds(ids)
+
+      const { data } = await supabase
+        .from('visits')
+        .select('*')
+        .eq('visit_date', TODAY)
+        .single()
+
+      if (!isMounted) return
+
+      setVisitId(data?.id ?? null)
+      if (data?.id) {
+        await loadPointStatus(data.id)
+      } else {
+        setPoints(DEFAULT_POINTS)
+      }
+      setLoading(false)
+    }
+
+    loadVisit()
+
+    return () => {
+      isMounted = false
+    }
+  }, [loadPointStatus])
+
+  const createVisit = async () => {
+    if (!canEdit) return
+    setCreatingVisit(true)
+    setError(null)
+
+    const { data, error: createError } = await supabase
+      .from('visits')
+      .insert({ created_by: session.user.id, visit_date: TODAY, status: 'incompleta' })
+      .select()
+      .single()
+
+    if (createError) {
+      setError('No se pudo crear la visita.')
+      setCreatingVisit(false)
+      return
+    }
+
+    setVisitId(data.id)
+    await loadPointStatus(data.id)
+    setCreatingVisit(false)
+  }
 
   const updateDraft = (pointNumber: number, draft: PointDraft) => {
     setDrafts(d => ({ ...d, [pointNumber]: draft }))
   }
 
-  const completedCount = MOCK_POINTS.filter(p => {
-    const d = drafts[p.point_number]
-    return d && d.photos.length >= p.required_photos
-  }).length
+  const savePoint = async (pointNumber: number) => {
+    if (!visitId) {
+      setError('Primero crea una visita.')
+      throw new Error('Missing visit id')
+    }
 
-  const activePointData = MOCK_POINTS.find(p => p.point_number === activePoint)
+    const fixedPointId = fixedPointIds[pointNumber]
+    if (!fixedPointId) {
+      setError('No se encontrÃ³ el UUID del punto fijo.')
+      throw new Error('Missing fixed point id')
+    }
+
+    if (!canEdit) {
+      setError('Tu usuario es de solo lectura.')
+      throw new Error('Read only role')
+    }
+
+    const draft = drafts[pointNumber]
+    const { data: record, error: saveError } = await supabase
+      .from('visit_point_records')
+      .upsert({
+        visit_id: visitId,
+        fixed_point_id: fixedPointId,
+        observations: draft.observations,
+      }, { onConflict: 'visit_id,fixed_point_id' })
+      .select('id')
+      .single()
+
+    if (saveError) {
+      setError('No se pudo guardar el punto.')
+      throw saveError
+    }
+
+    if (record?.id && pointNumber === 4) {
+      const water = draft.water ?? emptyWater
+      const { error: waterError } = await supabase
+        .from('water_measurements')
+        .upsert({
+          visit_point_record_id: record.id,
+          temperatura_c: numericOrNull(water.temperatura_c),
+          ph: numericOrNull(water.ph),
+          conductividad: numericOrNull(water.conductividad),
+          solidos_disueltos: numericOrNull(water.solidos_disueltos),
+          oxigeno_disuelto_mgl: numericOrNull(water.oxigeno_disuelto_mgl),
+          oxigeno_disuelto_pct: numericOrNull(water.oxigeno_disuelto_pct),
+        }, { onConflict: 'visit_point_record_id' })
+
+      if (waterError) {
+        setError('No se pudieron guardar los parÃ¡metros de agua.')
+        throw waterError
+      }
+    }
+
+    setError(null)
+    await loadPointStatus(visitId)
+  }
+
+  const completedCount = points.filter(p => pointStatus(p) === 'completo').length
+
+  const activePointData = points.find(p => p.point_number === activePoint)
 
   // ── No visit yet ─────────────────────────────────────────
-  if (!hasVisit) {
+  if (loading) {
+    return (
+      <div style={{
+        height: '100%', display: 'flex',
+        alignItems: 'center', justifyContent: 'center',
+        padding: 32,
+      }}>
+        <div style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>Cargando visita...</div>
+      </div>
+    )
+  }
+
+  if (!visitId) {
     return (
       <div style={{
         height: '100%', display: 'flex', flexDirection: 'column',
@@ -416,18 +637,25 @@ export default function VisitaView() {
         <div style={{ fontSize: 14, color: 'var(--color-text-muted)', textAlign: 'center', maxWidth: 260 }}>
           No hay visita registrada para hoy. Inicia una nueva para comenzar el registro.
         </div>
+        {error && (
+          <div style={{ fontSize: 12, color: 'var(--color-warning)', textAlign: 'center', maxWidth: 280 }}>
+            {error}
+          </div>
+        )}
         <button
-          onClick={() => setHasVisit(true)}
+          onClick={createVisit}
+          disabled={creatingVisit || !canEdit}
           style={{
             marginTop: 8,
             background: 'var(--color-accent)', color: '#fff',
             border: 'none', borderRadius: 'var(--radius-md)',
             padding: '13px 28px', fontSize: 15, fontWeight: 600,
-            cursor: 'pointer', fontFamily: 'var(--font-sans)',
+            cursor: creatingVisit || !canEdit ? 'default' : 'pointer', fontFamily: 'var(--font-sans)',
             display: 'flex', alignItems: 'center', gap: 8,
+            opacity: creatingVisit || !canEdit ? 0.7 : 1,
           }}
         >
-          + Nueva visita
+          {!canEdit ? 'Solo lectura' : creatingVisit ? 'Creando...' : '+ Nueva visita'}
         </button>
       </div>
     )
@@ -447,18 +675,23 @@ export default function VisitaView() {
       }}>
         <div>
           <div style={{ fontWeight: 600, fontSize: 15 }}>
-            {new Date().toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' })}
+            {getMexicoCityDisplayDate()}
           </div>
           <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 2 }}>
-            {completedCount}/{MOCK_POINTS.length} puntos completados
+            {completedCount}/{points.length} puntos completados
           </div>
         </div>
+        {error && (
+          <div style={{ fontSize: 11, color: 'var(--color-warning)', marginTop: 2 }}>
+            {error}
+          </div>
+        )}
         {/* Progress bar */}
         <div style={{ width: 80, height: 6, background: 'var(--color-border)', borderRadius: 3, overflow: 'hidden' }}>
           <div style={{
             height: '100%', borderRadius: 3,
-            background: completedCount === MOCK_POINTS.length ? 'var(--color-accent)' : 'var(--color-warning)',
-            width: `${(completedCount / MOCK_POINTS.length) * 100}%`,
+            background: completedCount === points.length ? 'var(--color-accent)' : 'var(--color-warning)',
+            width: `${points.length > 0 ? (completedCount / points.length) * 100 : 0}%`,
             transition: 'width .3s',
           }} />
         </div>
@@ -466,7 +699,7 @@ export default function VisitaView() {
 
       {/* Points list */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 16px 32px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {MOCK_POINTS.map(point => (
+        {points.map(point => (
           <PointCard
             key={point.point_number}
             point={point}
@@ -496,6 +729,8 @@ export default function VisitaView() {
           draft={drafts[activePoint]}
           onChange={d => updateDraft(activePoint, d)}
           onClose={() => setActivePoint(null)}
+          onSave={() => savePoint(activePoint)}
+          canEdit={canEdit}
         />
       )}
     </div>

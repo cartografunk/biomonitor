@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from './lib/supabase'
 import type { Session } from '@supabase/supabase-js'
+import type { UserRole } from './types'
 import MapView from './components/MapView'
 import VisitaView from './components/VisitaView'
 import AguaView from './components/AguaView'
@@ -19,6 +20,7 @@ const NAV_ITEMS: { id: Tab; label: string }[] = [
 export default function App() {
   const [tab, setTab] = useState<Tab>('mapa')
   const [session, setSession] = useState<Session | null>(null)
+  const [role, setRole] = useState<UserRole | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -31,6 +33,33 @@ export default function App() {
     })
     return () => subscription.unsubscribe()
   }, [])
+
+  useEffect(() => {
+    let isMounted = true
+
+    async function loadRole() {
+      if (!session?.user.id) {
+        setRole(null)
+        return
+      }
+
+      const { data } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', session.user.id)
+        .single()
+
+      if (isMounted) {
+        setRole((data?.role as UserRole | undefined) ?? null)
+      }
+    }
+
+    loadRole()
+
+    return () => {
+      isMounted = false
+    }
+  }, [session])
 
   if (loading) return (
     <div style={{
@@ -91,10 +120,10 @@ export default function App() {
 
       {/* Main content */}
       <main style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
-        {tab === 'mapa'     && <MapView />}
-        {tab === 'visita'   && <VisitaView />}
+        {tab === 'mapa'     && <MapView session={session} />}
+        {tab === 'visita'   && <VisitaView session={session} role={role} />}
         {tab === 'agua'     && <AguaView />}
-        {tab === 'reportes' && <ReportesView />}
+        {tab === 'reportes' && <ReportesView role={role} />}
       </main>
 
       {/* Bottom nav */}
