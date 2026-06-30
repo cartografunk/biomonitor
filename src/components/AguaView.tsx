@@ -1,6 +1,6 @@
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, Dot
+  Tooltip, ResponsiveContainer
 } from 'recharts'
 
 // ── Mock data ────────────────────────────────────────────────
@@ -92,7 +92,7 @@ function ParamCard({ param }: { param: ParamConfig }) {
               fontFamily: 'var(--font-sans)',
               boxShadow: 'var(--shadow-md)',
             }}
-            formatter={(v: number) => [`${v}${param.unit ? ' ' + param.unit : ''}`, param.label]}
+            formatter={(v) => [`${v}${param.unit ? ' ' + param.unit : ''}`, param.label]}
             labelStyle={{ color: 'var(--color-text-muted)', marginBottom: 2 }}
           />
           <Line
