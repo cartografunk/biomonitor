@@ -1,0 +1,23 @@
+project: Biomonitor
+description: Bitacora digital GIS para visitas de campo al Bordo Benito Juarez
+storage:
+  provider: Cloudflare R2
+  bucket_name: biomonitor-photos
+  upload_endpoint: /api/upload-photo
+  public_assets:
+    env:
+      VITE_R2_PUBLIC_URL: Public base URL for reading uploaded photos in the frontend.
+  server_only:
+    env:
+      SUPABASE_URL: Supabase project URL used by the upload function to validate JWTs.
+      SUPABASE_ANON_KEY: Supabase anon key used with the user JWT validation request.
+      R2_ACCOUNT_ID: Cloudflare account id.
+      R2_ACCESS_KEY_ID: R2 access key id with write permission to the bucket.
+      R2_SECRET_ACCESS_KEY: R2 secret access key with write permission to the bucket.
+      R2_BUCKET_NAME: biomonitor-photos
+      R2_PUBLIC_URL: Public base URL or custom domain for the bucket.
+  notes:
+    - R2 credentials must only be configured in Cloudflare Pages/Worker environment variables.
+    - Frontend uploads photos through /api/upload-photo and never receives R2 secrets.
+    - The browser converts images to WebP and creates a 300px thumbnail before upload.
+    - The function validates the Supabase Auth bearer token before uploading to R2.

@@ -23,6 +23,7 @@ function getMexicoCityDisplayDate() {
 }
 
 const TODAY = getMexicoCityDate()
+const R2_PUBLIC_URL = (import.meta.env.VITE_R2_PUBLIC_URL as string | undefined)?.replace(/\/$/, '') ?? ''
 
 const DEFAULT_POINTS: VisitPointStatus[] = [
   { visit_id: '', visit_date: TODAY, point_number: 1, label: 'Punto 1', required_photos: 2, is_lab_point: false, has_water_sampling: false, uploaded_photos: 0, photo_status: 'pendiente', has_water_measurements: false },
@@ -36,6 +37,12 @@ interface LocalPhoto {
   id: string
   url: string
   name: string
+  storageKey?: string
+  thumbnailKey?: string
+  fileSizeKb?: number | null
+  status?: 'ready' | 'uploading' | 'error'
+  error?: string
+  file?: File
 }
 
 interface WaterParams {
@@ -74,12 +81,48 @@ function numericOrNull(value: string) {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+function photoUrl(key: string) {
+  return R2_PUBLIC_URL ? `${R2_PUBLIC_URL}/${key}` : ''
+}
+
+async function fileToImage(file: File) {
+  const bitmap = await createImageBitmap(file)
+  return bitmap
+}
+
+async function imageToWebP(file: File, maxWidth: number, maxBytes?: number) {
+  const image = await fileToImage(file)
+  const scale = Math.min(1, maxWidth / image.width)
+  const width = Math.max(1, Math.round(image.width * scale))
+  const height = Math.max(1, Math.round(image.height * scale))
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('No se pudo procesar la imagen.')
+  ctx.drawImage(image, 0, 0, width, height)
+  image.close()
+
+  let quality = 0.86
+  let blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/webp', quality))
+  while (blob && maxBytes && blob.size > maxBytes && quality > 0.45) {
+    quality -= 0.08
+    blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/webp', quality))
+  }
+
+  if (!blob) throw new Error('No se pudo convertir la imagen.')
+  if (maxBytes && blob.size > maxBytes) throw new Error('La foto supera 2 MB aun comprimida.')
+  return new File([blob], `${crypto.randomUUID()}.webp`, { type: 'image/webp' })
+}
+
 // ── Sub-components ───────────────────────────────────────────
 
-function PhotoCarousel({ photos, onAdd, onRemove, required, disabled }: {
+function PhotoCarousel({ photos, onAdd, onRemove, onRetry, required, disabled }: {
   photos: LocalPhoto[]
   onAdd: (files: FileList) => void
   onRemove: (id: string) => void
+  onRetry: (id: string) => void
   required: number
   disabled?: boolean
 }) {
@@ -148,6 +191,46 @@ function PhotoCarousel({ photos, onAdd, onRemove, required, disabled }: {
             alt={photos[current].name}
             style={{ width: '100%', height: 200, objectFit: 'cover', display: 'block' }}
           />
+          {photos[current].status === 'uploading' && (
+            <div style={{
+              position: 'absolute', inset: 0,
+              background: 'rgba(0,0,0,0.45)',
+              color: '#fff',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 13, fontWeight: 600,
+            }}>
+              Subiendo foto...
+            </div>
+          )}
+          {photos[current].status === 'error' && (
+            <div style={{
+              position: 'absolute', left: 8, right: 8, bottom: 8,
+              background: 'rgba(232,93,4,0.92)',
+              color: '#fff',
+              borderRadius: 'var(--radius-sm)',
+              padding: '8px 10px',
+              fontSize: 12,
+            }}>
+              <div>{photos[current].error ?? 'No se pudo subir la foto'}</div>
+              {!disabled && photos[current].file && (
+                <button
+                  onClick={() => onRetry(photos[current].id)}
+                  style={{
+                    marginTop: 6,
+                    background: '#fff',
+                    color: 'var(--color-warning)',
+                    border: 'none',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '5px 8px',
+                    fontSize: 12,
+                    fontWeight: 600,
+                  }}
+                >
+                  Reintentar
+                </button>
+              )}
+            </div>
+          )}
           {/* Remove button */}
           <button
             onClick={() => {
@@ -214,28 +297,28 @@ function PhotoCarousel({ photos, onAdd, onRemove, required, disabled }: {
 }
 
 // ── Point Drawer ─────────────────────────────────────────────
-function PointDrawer({ point, draft, onChange, onClose, onSave, canEdit }: {
+function PointDrawer({
+  point,
+  draft,
+  onChange,
+  onClose,
+  onSave,
+  onUploadPhotos,
+  onRemovePhoto,
+  onRetryPhoto,
+  canEdit,
+}: {
   point: VisitPointStatus
   draft: PointDraft
   onChange: (d: PointDraft) => void
   onClose: () => void
   onSave: () => Promise<void>
+  onUploadPhotos: (files: FileList) => void
+  onRemovePhoto: (id: string) => void
+  onRetryPhoto: (id: string) => void
   canEdit: boolean
 }) {
   const [saving, setSaving] = useState(false)
-
-  const addPhotos = (files: FileList) => {
-    const newPhotos: LocalPhoto[] = Array.from(files).map(f => ({
-      id: crypto.randomUUID(),
-      url: URL.createObjectURL(f),
-      name: f.name,
-    }))
-    onChange({ ...draft, photos: [...draft.photos, ...newPhotos] })
-  }
-
-  const removePhoto = (id: string) => {
-    onChange({ ...draft, photos: draft.photos.filter(p => p.id !== id) })
-  }
 
   const status = pointStatus(point)
 
@@ -285,8 +368,9 @@ function PointDrawer({ point, draft, onChange, onClose, onSave, canEdit }: {
         {/* Photos */}
         <PhotoCarousel
           photos={draft.photos}
-          onAdd={addPhotos}
-          onRemove={removePhoto}
+          onAdd={onUploadPhotos}
+          onRemove={onRemovePhoto}
+          onRetry={onRetryPhoto}
           required={point.required_photos}
           disabled={!canEdit}
         />
@@ -551,7 +635,7 @@ export default function VisitaView({ session, role }: { session: Session; role: 
     setDrafts(d => ({ ...d, [pointNumber]: draft }))
   }
 
-  const savePoint = async (pointNumber: number) => {
+  const ensureVisitPointRecord = async (pointNumber: number) => {
     if (!visitId) {
       setError('Primero crea una visita.')
       throw new Error('Missing visit id')
@@ -584,12 +668,241 @@ export default function VisitaView({ session, role }: { session: Session; role: 
       throw saveError
     }
 
-    if (record?.id && pointNumber === 4) {
+    if (!record?.id) {
+      setError('No se pudo obtener el registro del punto.')
+      throw new Error('Missing visit point record id')
+    }
+
+    return record.id as string
+  }
+
+  const loadPhotos = useCallback(async (currentVisitId: string) => {
+    const { data, error: photosError } = await supabase
+      .from('photos')
+      .select(`
+        id,
+        visit_point_record_id,
+        storage_key,
+        thumbnail_key,
+        file_size_kb,
+        visit_point_records (
+          fixed_points (
+            point_number
+          )
+        )
+      `)
+      .eq('visit_id', currentVisitId)
+
+    if (photosError) {
+      setError('No se pudieron cargar las fotos.')
+      return
+    }
+
+    const nextPhotos: Record<number, LocalPhoto[]> = {}
+    ;((data ?? []) as unknown as {
+      id: string
+      storage_key: string
+      thumbnail_key: string
+      file_size_kb: number | null
+      visit_point_records: { fixed_points: { point_number: number } | null } | null
+    }[]).forEach(photo => {
+      const pointNumber = photo.visit_point_records?.fixed_points?.point_number
+      if (!pointNumber) return
+      nextPhotos[pointNumber] ??= []
+      nextPhotos[pointNumber].push({
+        id: photo.id,
+        url: photoUrl(photo.thumbnail_key || photo.storage_key),
+        name: photo.storage_key.split('/').pop() ?? 'foto.webp',
+        storageKey: photo.storage_key,
+        thumbnailKey: photo.thumbnail_key,
+        fileSizeKb: photo.file_size_kb,
+        status: 'ready',
+      })
+    })
+
+    setDrafts(current => {
+      const next = { ...current }
+      DEFAULT_POINTS.forEach(point => {
+        next[point.point_number] = {
+          ...(next[point.point_number] ?? { observations: '' }),
+          photos: nextPhotos[point.point_number] ?? [],
+        }
+      })
+      return next
+    })
+  }, [])
+
+  useEffect(() => {
+    if (visitId) {
+      loadPhotos(visitId)
+    }
+  }, [loadPhotos, visitId])
+
+  const uploadPhoto = async (pointNumber: number, localId: string, file: File) => {
+    try {
+      const currentVisitId = visitId
+      if (!currentVisitId) throw new Error('Primero crea una visita.')
+      const visitPointRecordId = await ensureVisitPointRecord(pointNumber)
+      const image = await imageToWebP(file, 1600, 2 * 1024 * 1024)
+      const thumbnail = await imageToWebP(file, 300)
+      const { data: sessionData } = await supabase.auth.getSession()
+      const token = sessionData.session?.access_token
+      if (!token) throw new Error('Sesión inválida.')
+
+      const form = new FormData()
+      form.append('image', image)
+      form.append('thumbnail', thumbnail)
+      form.append('visit_id', currentVisitId)
+      form.append('point_number', String(pointNumber))
+
+      const response = await fetch('/api/upload-photo', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+        },
+        body: form,
+      })
+
+      const result = await response.json() as {
+        storage_key?: string
+        thumbnail_key?: string
+        thumbnail_url?: string
+        file_size_kb?: number
+        error?: string
+      }
+
+      if (!response.ok || !result.storage_key || !result.thumbnail_key) {
+        throw new Error(result.error ?? 'No se pudo subir la foto.')
+      }
+
+      const storageKey = result.storage_key
+      const thumbnailKey = result.thumbnail_key
+      const { data: photo, error: photoError } = await supabase
+        .from('photos')
+        .insert({
+          visit_id: currentVisitId,
+          visit_point_record_id: visitPointRecordId,
+          storage_key: storageKey,
+          thumbnail_key: thumbnailKey,
+          file_size_kb: result.file_size_kb ?? Math.ceil(image.size / 1024),
+        })
+        .select('id')
+        .single()
+
+      if (photoError) throw photoError
+      if (!photo?.id) throw new Error('No se pudo registrar la foto.')
+
+      setDrafts(current => ({
+        ...current,
+        [pointNumber]: {
+          ...current[pointNumber],
+          photos: current[pointNumber].photos.map(p => (
+            p.id === localId
+              ? {
+                  id: photo.id,
+                  url: result.thumbnail_url ?? photoUrl(thumbnailKey),
+                  name: file.name,
+                  storageKey,
+                  thumbnailKey,
+                  fileSizeKb: result.file_size_kb ?? Math.ceil(image.size / 1024),
+                  status: 'ready',
+                }
+              : p
+          )),
+        },
+      }))
+
+      await loadPointStatus(currentVisitId)
+    } catch (uploadError) {
+      setDrafts(current => ({
+        ...current,
+        [pointNumber]: {
+          ...current[pointNumber],
+          photos: current[pointNumber].photos.map(p => (
+            p.id === localId
+              ? {
+                  ...p,
+                  status: 'error',
+                  error: uploadError instanceof Error ? uploadError.message : 'No se pudo subir la foto.',
+                }
+              : p
+          )),
+        },
+      }))
+    }
+  }
+
+  const uploadPhotos = (pointNumber: number, files: FileList) => {
+    if (!canEdit) return
+
+    const localPhotos: LocalPhoto[] = Array.from(files).map(file => ({
+      id: crypto.randomUUID(),
+      url: URL.createObjectURL(file),
+      name: file.name,
+      status: 'uploading',
+      file,
+    }))
+
+    setDrafts(current => ({
+      ...current,
+      [pointNumber]: {
+        ...current[pointNumber],
+        photos: [...current[pointNumber].photos, ...localPhotos],
+      },
+    }))
+
+    localPhotos.forEach(photo => {
+      if (photo.file) {
+        uploadPhoto(pointNumber, photo.id, photo.file)
+      }
+    })
+  }
+
+  const retryPhoto = (pointNumber: number, photoId: string) => {
+    const photo = drafts[pointNumber].photos.find(p => p.id === photoId)
+    if (!photo?.file) return
+
+    setDrafts(current => ({
+      ...current,
+      [pointNumber]: {
+        ...current[pointNumber],
+        photos: current[pointNumber].photos.map(p => (
+          p.id === photoId ? { ...p, status: 'uploading', error: undefined } : p
+        )),
+      },
+    }))
+
+    uploadPhoto(pointNumber, photoId, photo.file)
+  }
+
+  const removePhoto = async (pointNumber: number, photoId: string) => {
+    const photo = drafts[pointNumber].photos.find(p => p.id === photoId)
+    setDrafts(current => ({
+      ...current,
+      [pointNumber]: {
+        ...current[pointNumber],
+        photos: current[pointNumber].photos.filter(p => p.id !== photoId),
+      },
+    }))
+
+    if (photo?.storageKey) {
+      await supabase.from('photos').delete().eq('id', photoId)
+      if (visitId) await loadPointStatus(visitId)
+    }
+  }
+
+  const savePoint = async (pointNumber: number) => {
+    const currentVisitId = visitId
+    if (!currentVisitId) throw new Error('Missing visit id')
+    const recordId = await ensureVisitPointRecord(pointNumber)
+
+    if (pointNumber === 4) {
+      const draft = drafts[pointNumber]
       const water = draft.water ?? emptyWater
       const { error: waterError } = await supabase
         .from('water_measurements')
         .upsert({
-          visit_point_record_id: record.id,
+          visit_point_record_id: recordId,
           temperatura_c: numericOrNull(water.temperatura_c),
           ph: numericOrNull(water.ph),
           conductividad: numericOrNull(water.conductividad),
@@ -605,7 +918,7 @@ export default function VisitaView({ session, role }: { session: Session; role: 
     }
 
     setError(null)
-    await loadPointStatus(visitId)
+    await loadPointStatus(currentVisitId)
   }
 
   const completedCount = points.filter(p => pointStatus(p) === 'completo').length
@@ -730,6 +1043,9 @@ export default function VisitaView({ session, role }: { session: Session; role: 
           onChange={d => updateDraft(activePoint, d)}
           onClose={() => setActivePoint(null)}
           onSave={() => savePoint(activePoint)}
+          onUploadPhotos={files => uploadPhotos(activePoint, files)}
+          onRemovePhoto={id => removePhoto(activePoint, id)}
+          onRetryPhoto={id => retryPhoto(activePoint, id)}
           canEdit={canEdit}
         />
       )}
