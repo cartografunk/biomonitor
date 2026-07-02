@@ -95,6 +95,7 @@ export async function onRequestPost({ request, env }) {
     const image = form.get('image')
     const thumbnail = form.get('thumbnail')
     const visitId = String(form.get('visit_id') ?? '')
+    const visitDate = String(form.get('visit_date') ?? '')
     const pointNumber = String(form.get('point_number') ?? '')
 
     if (!(image instanceof File) || !(thumbnail instanceof File)) {
@@ -110,8 +111,9 @@ export async function onRequestPost({ request, env }) {
     }
 
     const safeVisitId = visitId.replace(/[^a-zA-Z0-9_-]/g, '')
+    const safeVisitDate = /^\d{4}-\d{2}-\d{2}$/.test(visitDate) ? visitDate : ''
     const safePointNumber = pointNumber.replace(/[^0-9]/g, '')
-    const date = new Date().toISOString().slice(0, 10)
+    const date = safeVisitDate || new Date().toISOString().slice(0, 10)
     const id = crypto.randomUUID()
     const prefix = `visits/${date}/${safeVisitId || 'unknown'}/p${safePointNumber || 'x'}`
     const storageKey = `${prefix}/${id}.webp`

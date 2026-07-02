@@ -63,6 +63,15 @@ function formatShortDate(date: string) {
   }).format(new Date(`${date}T12:00:00`)).replace('.', '')
 }
 
+function escapeCell(value: string | number | null) {
+  if (value === null) return ''
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
 function ParamCard({ param, data }: { param: ParamConfig; data: WaterChartRow[] }) {
   const latest = [...data].reverse().find(row => row[param.key] !== null)?.[param.key]
 
@@ -137,6 +146,7 @@ function ParamCard({ param, data }: { param: ParamConfig; data: WaterChartRow[] 
 export default function AguaView() {
   const [data, setData] = useState<WaterChartRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [downloading, setDownloading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -200,6 +210,51 @@ export default function AguaView() {
     }
   }, [])
 
+  const handleDownloadExcel = async () => {
+    if (data.length === 0) return
+
+    setDownloading(true)
+    const headers = [
+      'Fecha',
+      'Temperatura (°C)',
+      'pH',
+      'Conductividad (mS)',
+      'Sólidos disueltos (ppt)',
+      'Oxígeno disuelto (mg/L)',
+      'Oxígeno disuelto (OD%)',
+    ]
+    const bodyRows = data.map(row => [
+      row.visit_date,
+      row.temperatura_c,
+      row.ph,
+      row.conductividad,
+      row.solidos_disueltos,
+      row.oxigeno_disuelto_mgl,
+      row.oxigeno_disuelto_pct,
+    ])
+    const table = `
+      <html>
+        <head><meta charset="utf-8" /></head>
+        <body>
+          <table>
+            <thead><tr>${headers.map(header => `<th>${escapeCell(header)}</th>`).join('')}</tr></thead>
+            <tbody>
+              ${bodyRows.map(row => `<tr>${row.map(cell => `<td>${escapeCell(cell)}</td>`).join('')}</tr>`).join('')}
+            </tbody>
+          </table>
+        </body>
+      </html>
+    `
+    const blob = new Blob([table], { type: 'application/vnd.ms-excel;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `biomonitor-agua-${new Date().toISOString().split('T')[0]}.xls`
+    link.click()
+    URL.revokeObjectURL(url)
+    setDownloading(false)
+  }
+
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <div style={{
@@ -207,11 +262,37 @@ export default function AguaView() {
         background: 'var(--color-surface)',
         borderBottom: '1px solid var(--color-border)',
         flexShrink: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 12,
       }}>
+        <div>
         <div style={{ fontWeight: 600, fontSize: 15 }}>Calidad del agua</div>
         <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 2 }}>
           Punto 4 — Cono Imhoff · histórico
         </div>
+        </div>
+        <button
+          onClick={handleDownloadExcel}
+          disabled={loading || downloading || data.length === 0}
+          title="Descargar Excel"
+          style={{
+            flexShrink: 0,
+            border: '1.5px solid var(--color-border)',
+            borderRadius: 'var(--radius-md)',
+            background: data.length === 0 ? 'var(--color-bg)' : 'var(--color-surface)',
+            color: data.length === 0 ? 'var(--color-text-muted)' : 'var(--color-text-primary)',
+            padding: '8px 10px',
+            fontSize: 13,
+            fontWeight: 600,
+            fontFamily: 'var(--font-sans)',
+            cursor: loading || downloading || data.length === 0 ? 'not-allowed' : 'pointer',
+            opacity: loading || downloading || data.length === 0 ? 0.6 : 1,
+          }}
+        >
+          {downloading ? '...' : 'Excel'}
+        </button>
       </div>
 
       <div style={{

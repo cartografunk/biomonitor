@@ -13,17 +13,28 @@ function getMexicoCityDate() {
   }).format(new Date())
 }
 
-function getMexicoCityDisplayDate() {
+function formatVisitDisplayDate(date: string) {
   return new Intl.DateTimeFormat('es-MX', {
     timeZone: 'America/Mexico_City',
     weekday: 'long',
     day: 'numeric',
     month: 'long',
-  }).format(new Date())
+  }).format(new Date(`${date}T12:00:00Z`))
 }
 
 const TODAY = getMexicoCityDate()
 const R2_PUBLIC_URL = (import.meta.env.VITE_R2_PUBLIC_URL as string | undefined)?.replace(/\/$/, '') ?? ''
+
+function capturedAtForVisitDate(date: string) {
+  return new Date(`${date}T12:00:00Z`).toISOString()
+}
+
+function getDefaultPoints(visitDate: string): VisitPointStatus[] {
+  return DEFAULT_POINTS.map(point => ({
+    ...point,
+    visit_date: visitDate,
+  }))
+}
 
 const DEFAULT_POINTS: VisitPointStatus[] = [
   { visit_id: '', visit_date: TODAY, point_number: 1, label: 'Punto 1', required_photos: 2, is_lab_point: false, has_water_sampling: false, uploaded_photos: 0, photo_status: 'pendiente', has_water_measurements: false },
@@ -524,23 +535,25 @@ function PointCard({ point, draft, onClick }: {
 
 // ── Main ─────────────────────────────────────────────────────
 export default function VisitaView({ session, role }: { session: Session; role: UserRole | null }) {
+  const [visitDate, setVisitDate] = useState(TODAY)
   const [visitId, setVisitId] = useState<string | null>(null)
   const [fixedPointIds, setFixedPointIds] = useState<Record<number, string>>({})
   const [loading, setLoading] = useState(true)
   const [creatingVisit, setCreatingVisit] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [activePoint, setActivePoint] = useState<number | null>(null)
-  const [points, setPoints] = useState<VisitPointStatus[]>(DEFAULT_POINTS)
+  const [points, setPoints] = useState<VisitPointStatus[]>(getDefaultPoints(TODAY))
   const [drafts, setDrafts] = useState<Record<number, PointDraft>>(
     Object.fromEntries(DEFAULT_POINTS.map(p => [p.point_number, { photos: [], observations: '' }]))
   )
+  const dateChangedByUserRef = useRef(false)
   const canEdit = role === 'editor'
 
   const loadPointStatus = useCallback(async (currentVisitId: string) => {
     const { data, error: statusError } = await supabase
       .from('visit_point_status')
       .select('*')
-      .eq('visit_date', TODAY)
+      .eq('visit_date', visitDate)
       .order('point_number')
 
     if (statusError) {
@@ -552,13 +565,12 @@ export default function VisitaView({ session, role }: { session: Session; role: 
     setPoints(
       statusRows.length > 0
         ? statusRows
-        : DEFAULT_POINTS.map(point => ({
+        : getDefaultPoints(visitDate).map(point => ({
             ...point,
             visit_id: currentVisitId,
-            visit_date: TODAY,
           }))
     )
-  }, [])
+  }, [visitDate])
 
   useEffect(() => {
     let isMounted = true
@@ -587,17 +599,22 @@ export default function VisitaView({ session, role }: { session: Session; role: 
       const { data } = await supabase
         .from('visits')
         .select('*')
-        .eq('visit_date', TODAY)
-        .single()
+        .eq('visit_date', visitDate)
+        .maybeSingle()
 
       if (!isMounted) return
 
       setVisitId(data?.id ?? null)
       if (data?.id) {
         await loadPointStatus(data.id)
+        if (dateChangedByUserRef.current) {
+          setError('Ya existia una visita para esa fecha; continuamos esa visita.')
+        }
       } else {
-        setPoints(DEFAULT_POINTS)
+        setPoints(getDefaultPoints(visitDate))
+        setDrafts(Object.fromEntries(DEFAULT_POINTS.map(p => [p.point_number, { photos: [], observations: '' }])))
       }
+      dateChangedByUserRef.current = false
       setLoading(false)
     }
 
@@ -606,16 +623,53 @@ export default function VisitaView({ session, role }: { session: Session; role: 
     return () => {
       isMounted = false
     }
-  }, [loadPointStatus])
+  }, [loadPointStatus, visitDate])
+
+  const handleVisitDateChange = (value: string) => {
+    if (!value) return
+    setActivePoint(null)
+    if (value > TODAY) {
+      setError('No se pueden crear visitas con fecha futura.')
+      return
+    }
+    dateChangedByUserRef.current = true
+    setVisitDate(value)
+  }
 
   const createVisit = async () => {
     if (!canEdit) return
     setCreatingVisit(true)
     setError(null)
 
+    if (visitDate > TODAY) {
+      setError('No se pueden crear visitas con fecha futura.')
+      setCreatingVisit(false)
+      return
+    }
+
+    const { data: existingVisit, error: existingError } = await supabase
+      .from('visits')
+      .select('id')
+      .eq('visit_date', visitDate)
+      .maybeSingle()
+
+    if (existingError) {
+      setError('No se pudo revisar si ya existe una visita para esa fecha.')
+      setCreatingVisit(false)
+      return
+    }
+
+    if (existingVisit?.id) {
+      setVisitId(existingVisit.id)
+      await loadPointStatus(existingVisit.id)
+      setError('Ya existia una visita para esa fecha; continuamos esa visita.')
+      setCreatingVisit(false)
+      return
+    }
+
     const { data, error: createError } = await supabase
       .from('visits')
-      .insert({ created_by: session.user.id, visit_date: TODAY, status: 'incompleta' })
+      .insert({ created_by: session.user.id, visit_date: visitDate, status: 'incompleta' })
       .select()
       .single()
 
@@ -752,6 +806,7 @@ export default function VisitaView({ session, role }: { session: Session; role: 
       form.append('image', image)
       form.append('thumbnail', thumbnail)
       form.append('visit_id', currentVisitId)
+      form.append('visit_date', visitDate)
       form.append('point_number', String(pointNumber))
 
       const response = await fetch('/api/upload-photo', {
@@ -784,6 +839,7 @@ export default function VisitaView({ session, role }: { session: Session; role: 
           storage_key: storageKey,
           thumbnail_key: thumbnailKey,
           file_size_kb: result.file_size_kb ?? Math.ceil(image.size / 1024),
+          captured_at: capturedAtForVisitDate(visitDate),
         })
         .select('id')
         .single()
@@ -945,10 +1001,33 @@ export default function VisitaView({ session, role }: { session: Session; role: 
         padding: 32, gap: 16,
       }}>
         <div style={{ fontSize: 40 }}>📋</div>
-        <div style={{ fontWeight: 600, fontSize: 18, textAlign: 'center' }}>Sin visita hoy</div>
+        <div style={{ fontWeight: 600, fontSize: 18, textAlign: 'center' }}>Sin visita registrada</div>
         <div style={{ fontSize: 14, color: 'var(--color-text-muted)', textAlign: 'center', maxWidth: 260 }}>
-          No hay visita registrada para hoy. Inicia una nueva para comenzar el registro.
+          Elige la fecha de campo e inicia una nueva visita, o continua una existente si ya fue creada.
         </div>
+        <label style={{
+          display: 'flex', flexDirection: 'column', gap: 6,
+          fontSize: 12, color: 'var(--color-text-muted)', width: 'min(100%, 260px)',
+        }}>
+          Fecha de visita
+          <input
+            type="date"
+            value={visitDate}
+            max={TODAY}
+            onChange={event => handleVisitDateChange(event.target.value)}
+            disabled={creatingVisit}
+            style={{
+              width: '100%',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-md)',
+              padding: '11px 12px',
+              fontFamily: 'var(--font-sans)',
+              fontSize: 14,
+              color: 'var(--color-text-primary)',
+              background: 'var(--color-surface)',
+            }}
+          />
+        </label>
         {error && (
           <div style={{ fontSize: 12, color: 'var(--color-warning)', textAlign: 'center', maxWidth: 280 }}>
             {error}
@@ -987,7 +1066,7 @@ export default function VisitaView({ session, role }: { session: Session; role: 
       }}>
         <div>
           <div style={{ fontWeight: 600, fontSize: 15 }}>
-            {getMexicoCityDisplayDate()}
+            {formatVisitDisplayDate(visitDate)}
           </div>
           <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 2 }}>
             {completedCount}/{points.length} puntos completados
