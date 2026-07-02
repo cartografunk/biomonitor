@@ -139,41 +139,116 @@ function PhotoCarousel({ photos, onAdd, onRemove, onRetry, required, disabled }:
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [current, setCurrent] = useState(0)
+  const [pasteError, setPasteError] = useState<string | null>(null)
 
   const handleKey = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowLeft') setCurrent(c => Math.max(0, c - 1))
     if (e.key === 'ArrowRight') setCurrent(c => Math.min(photos.length - 1, c + 1))
   }
 
+  const addPastedFiles = (files: File[]) => {
+    if (files.length === 0) {
+      setPasteError('No hay imagen en el portapapeles.')
+      return
+    }
+    setPasteError(null)
+    onAdd(files)
+  }
+
+  const handlePaste = (event: React.ClipboardEvent) => {
+    const files = Array.from(event.clipboardData.items)
+      .filter(item => item.type.startsWith('image/'))
+      .map(item => item.getAsFile())
+      .filter((file): file is File => file !== null)
+
+    if (files.length === 0) return
+    event.preventDefault()
+    console.info('[Biomonitor] Imagen pegada en carrusel', { count: files.length })
+    addPastedFiles(files)
+  }
+
+  const handleReadClipboard = async () => {
+    if (disabled) return
+    setPasteError(null)
+
+    if (!navigator.clipboard?.read) {
+      setPasteError('Usa Ctrl+V: este navegador no permite leer imagen con boton.')
+      return
+    }
+
+    try {
+      const clipboardItems = await navigator.clipboard.read()
+      const files: File[] = []
+
+      for (const item of clipboardItems) {
+        const imageType = item.types.find(type => type.startsWith('image/'))
+        if (!imageType) continue
+        const blob = await item.getType(imageType)
+        const extension = imageType.split('/')[1] || 'png'
+        files.push(new File([blob], `portapapeles-${Date.now()}.${extension}`, { type: imageType }))
+      }
+
+      console.info('[Biomonitor] Imagen leida desde boton de portapapeles', { count: files.length })
+      addPastedFiles(files)
+    } catch (clipboardError) {
+      console.warn('[Biomonitor] No se pudo leer el portapapeles', clipboardError)
+      setPasteError('No se pudo leer el portapapeles. Usa Ctrl+V o revisa permisos del navegador.')
+    }
+  }
+
   return (
-    <div style={{ marginBottom: 16 }}>
+    <div style={{ marginBottom: 16 }} tabIndex={-1} onPaste={handlePaste}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-muted)' }}>
           Fotos ({photos.length}/{required} requerida{required > 1 ? 's' : ''})
         </span>
-        <button
-          onClick={() => inputRef.current?.click()}
-          disabled={disabled}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 4,
-            background: 'var(--color-accent-light)', border: 'none',
-            borderRadius: 'var(--radius-sm)', padding: '5px 10px',
-            fontSize: 12, fontWeight: 500, color: 'var(--color-accent)',
-            cursor: disabled ? 'default' : 'pointer',
-            opacity: disabled ? 0.55 : 1,
-          }}
-        >
-          + Foto
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button
+            onClick={handleReadClipboard}
+            disabled={disabled}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 4,
+              background: 'var(--color-surface)', border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-sm)', padding: '5px 10px',
+              fontSize: 12, fontWeight: 500, color: 'var(--color-text-primary)',
+              cursor: disabled ? 'default' : 'pointer',
+              opacity: disabled ? 0.55 : 1,
+            }}
+          >
+            Pegar
+          </button>
+          <button
+            onClick={() => inputRef.current?.click()}
+            disabled={disabled}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 4,
+              background: 'var(--color-accent-light)', border: 'none',
+              borderRadius: 'var(--radius-sm)', padding: '5px 10px',
+              fontSize: 12, fontWeight: 500, color: 'var(--color-accent)',
+              cursor: disabled ? 'default' : 'pointer',
+              opacity: disabled ? 0.55 : 1,
+            }}
+          >
+            + Foto
+          </button>
+        </div>
         <input
           ref={inputRef}
           type="file"
           accept="image/*"
           multiple
           style={{ display: 'none' }}
-          onChange={e => e.target.files && onAdd(e.target.files)}
+          onChange={e => {
+            if (e.target.files) onAdd(e.target.files)
+            e.target.value = ''
+          }}
         />
       </div>
+      {pasteError && (
+        <div style={{ fontSize: 11, color: 'var(--color-warning)', marginBottom: 8 }}>
+          {pasteError}
+        </div>
+      )}
 
       {photos.length === 0 ? (
         <button
@@ -329,8 +404,13 @@ function PointDrawer({
   canEdit: boolean
 }) {
   const [saving, setSaving] = useState(false)
+  const drawerRef = useRef<HTMLDivElement>(null)
 
   const status = pointStatus(point)
+
+  useEffect(() => {
+    drawerRef.current?.focus()
+  }, [point.point_number])
 
   useEffect(() => {
     if (!canEdit) return
@@ -362,7 +442,10 @@ function PointDrawer({
         }}
       />
       {/* Drawer */}
-      <div style={{
+      <div
+        ref={drawerRef}
+        tabIndex={-1}
+        style={{
         position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 50,
         background: 'var(--color-surface)',
         borderRadius: 'var(--radius-lg) var(--radius-lg) 0 0',
@@ -370,6 +453,7 @@ function PointDrawer({
         maxHeight: '85dvh',
         overflowY: 'auto',
         boxShadow: '0 -4px 24px rgba(0,0,0,0.12)',
+        outline: 'none',
       }}>
         {/* Handle */}
         <div style={{ display: 'flex', justifyContent: 'center', padding: '12px 0 4px' }}>
