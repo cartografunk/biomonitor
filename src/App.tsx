@@ -7,8 +7,10 @@ import VisitaView from './components/VisitaView'
 import AguaView from './components/AguaView'
 import ReportesView from './components/ReportesView'
 import LoginView from './components/LoginView'
+import SetPasswordView from './components/SetPasswordView'
 
 type Tab = 'mapa' | 'visita' | 'agua' | 'reportes'
+type PasswordFlow = 'invite' | 'recovery' | null
 
 const NAV_ITEMS: { id: Tab; label: string }[] = [
   { id: 'mapa',     label: 'Mapa' },
@@ -22,12 +24,53 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(null)
   const [role, setRole] = useState<UserRole | null>(null)
   const [loading, setLoading] = useState(true)
+  const [passwordFlow, setPasswordFlow] = useState<PasswordFlow>(null)
+  const [passwordFlowError, setPasswordFlowError] = useState<string | null>(null)
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
+    async function initializeAuth() {
+      const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''))
+      const accessToken = hash.get('access_token')
+      const refreshToken = hash.get('refresh_token')
+      const type = hash.get('type')
+      const isPasswordFlow = type === 'invite' || type === 'recovery'
+
+      if (window.location.hash) {
+        history.replaceState(null, document.title, `${window.location.pathname}${window.location.search}`)
+      }
+
+      if (isPasswordFlow) {
+        setPasswordFlow(type)
+
+        if (!accessToken || !refreshToken) {
+          setPasswordFlowError('El enlace de invitación es inválido o está incompleto.')
+          setLoading(false)
+          return
+        }
+
+        const { data, error } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        })
+
+        if (error || !data.session) {
+          setPasswordFlowError('El enlace de invitación expiró o ya no es válido.')
+          setLoading(false)
+          return
+        }
+
+        setSession(data.session)
+        setLoading(false)
+        return
+      }
+
+      const { data } = await supabase.auth.getSession()
       setSession(data.session)
       setLoading(false)
-    })
+    }
+
+    initializeAuth()
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
     })
@@ -70,6 +113,25 @@ export default function App() {
       <div style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>Cargando...</div>
     </div>
   )
+
+  if (passwordFlow) {
+    return (
+      <SetPasswordView
+        error={passwordFlowError}
+        onComplete={() => {
+          setPasswordFlow(null)
+          setPasswordFlowError(null)
+          setTab('mapa')
+        }}
+        onCancel={async () => {
+          await supabase.auth.signOut()
+          setPasswordFlow(null)
+          setPasswordFlowError(null)
+          setSession(null)
+        }}
+      />
+    )
+  }
 
   if (!session) return <LoginView />
 
