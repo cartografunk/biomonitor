@@ -45,6 +45,15 @@ const EMPTY_POINT_STATES: PointState[] = FIXED_POINTS.map(point => ({
   status: 'sin_registro',
 }))
 
+function applyPointColors(pins: Map<number, HTMLDivElement>, states: PointState[]) {
+  states.forEach(state => {
+    const pin = pins.get(state.id)
+    if (pin) {
+      pin.style.background = STATUS_COLOR[state.status]
+    }
+  })
+}
+
 export default function MapView({
   session,
   visitDate,
@@ -58,6 +67,7 @@ export default function MapView({
   const mapInstance = useRef<google.maps.Map | null>(null)
   const markersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([])
   const markerPinsRef = useRef<Map<number, HTMLDivElement>>(new Map())
+  const pointStatesRef = useRef<PointState[]>(EMPTY_POINT_STATES)
   const [selectedPoint, setSelectedPoint] = useState<number | null>(null)
 
   // Demo states — will come from Supabase later
@@ -135,10 +145,11 @@ export default function MapView({
 
       // Create markers for each fixed point
       markersRef.current = FIXED_POINTS.map(point => {
+        const currentStatus = pointStatesRef.current.find(state => state.id === point.id)?.status ?? 'sin_registro'
         const pin = document.createElement('div')
         pin.style.cssText = `
           width: 32px; height: 32px; border-radius: 50%;
-          background: ${STATUS_COLOR.sin_registro}; border: 2px solid white;
+          background: ${STATUS_COLOR[currentStatus]}; border: 2px solid white;
           display: flex; align-items: center; justify-content: center;
           font-family: 'DM Sans', sans-serif;
           font-size: 12px; font-weight: 500; color: white;
@@ -161,6 +172,8 @@ export default function MapView({
 
         return marker
       })
+
+      applyPointColors(markerPins, pointStatesRef.current)
     }
 
     initMap().catch(error => {
@@ -176,12 +189,8 @@ export default function MapView({
   }, [])
 
   useEffect(() => {
-    pointStates.forEach(state => {
-      const pin = markerPinsRef.current.get(state.id)
-      if (pin) {
-        pin.style.background = STATUS_COLOR[state.status]
-      }
-    })
+    pointStatesRef.current = pointStates
+    applyPointColors(markerPinsRef.current, pointStates)
   }, [pointStates])
 
   const selected = FIXED_POINTS.find(p => p.id === selectedPoint)
