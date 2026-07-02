@@ -96,35 +96,42 @@ function photoUrl(key: string) {
   return R2_PUBLIC_URL ? `${R2_PUBLIC_URL}/${key}` : ''
 }
 
-async function fileToImage(file: File) {
-  const bitmap = await createImageBitmap(file)
-  return bitmap
-}
-
 async function imageToWebP(file: File, maxWidth: number, maxBytes?: number) {
-  const image = await fileToImage(file)
-  const scale = Math.min(1, maxWidth / image.width)
-  const width = Math.max(1, Math.round(image.width * scale))
-  const height = Math.max(1, Math.round(image.height * scale))
-  const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
+  const url = URL.createObjectURL(file)
+  try {
+    const image = new Image()
+    image.decoding = 'sync'
+    image.src = url
+    await image.decode()
 
-  const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('No se pudo procesar la imagen.')
-  ctx.drawImage(image, 0, 0, width, height)
-  image.close()
+    const naturalWidth = image.naturalWidth || image.width
+    const naturalHeight = image.naturalHeight || image.height
+    if (!naturalWidth || !naturalHeight) throw new Error('La imagen no tiene dimensiones validas.')
 
-  let quality = 0.86
-  let blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/webp', quality))
-  while (blob && maxBytes && blob.size > maxBytes && quality > 0.45) {
-    quality -= 0.08
-    blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/webp', quality))
+    const scale = Math.min(1, maxWidth / naturalWidth)
+    const width = Math.max(1, Math.round(naturalWidth * scale))
+    const height = Math.max(1, Math.round(naturalHeight * scale))
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('No se pudo procesar la imagen.')
+    ctx.drawImage(image, 0, 0, width, height)
+
+    let quality = 0.86
+    let blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/webp', quality))
+    while (blob && maxBytes && blob.size > maxBytes && quality > 0.45) {
+      quality -= 0.08
+      blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/webp', quality))
+    }
+
+    if (!blob) throw new Error('No se pudo convertir la imagen.')
+    if (maxBytes && blob.size > maxBytes) throw new Error('La foto supera 2 MB aun comprimida.')
+    return new File([blob], `${crypto.randomUUID()}.webp`, { type: 'image/webp' })
+  } finally {
+    URL.revokeObjectURL(url)
   }
-
-  if (!blob) throw new Error('No se pudo convertir la imagen.')
-  if (maxBytes && blob.size > maxBytes) throw new Error('La foto supera 2 MB aun comprimida.')
-  return new File([blob], `${crypto.randomUUID()}.webp`, { type: 'image/webp' })
 }
 
 // ── Sub-components ───────────────────────────────────────────
@@ -411,26 +418,6 @@ function PointDrawer({
   useEffect(() => {
     drawerRef.current?.focus()
   }, [point.point_number])
-
-  useEffect(() => {
-    if (!canEdit) return
-
-    function handlePaste(event: ClipboardEvent) {
-      const files = Array.from(event.clipboardData?.items ?? [])
-        .filter(item => item.type.startsWith('image/'))
-        .map(item => item.getAsFile())
-        .filter((file): file is File => file !== null)
-
-      if (files.length === 0) return
-
-      event.preventDefault()
-      console.info('[Biomonitor] Imagen pegada desde portapapeles', { count: files.length })
-      onUploadPhotos(files)
-    }
-
-    window.addEventListener('paste', handlePaste, true)
-    return () => window.removeEventListener('paste', handlePaste, true)
-  }, [canEdit, onUploadPhotos])
 
   return (
     <>
@@ -1007,7 +994,10 @@ export default function VisitaView({
   const uploadPhotos = (pointNumber: number, files: FileList | File[]) => {
     if (!canEdit) return
 
-    const localPhotos: LocalPhoto[] = Array.from(files).map(file => ({
+    const imageFiles = Array.from(files).filter(file => file.type.startsWith('image/'))
+    if (imageFiles.length === 0) return
+
+    const localPhotos: LocalPhoto[] = imageFiles.map(file => ({
       id: crypto.randomUUID(),
       url: URL.createObjectURL(file),
       name: file.name,
