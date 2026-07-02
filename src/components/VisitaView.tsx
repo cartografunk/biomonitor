@@ -159,7 +159,6 @@ function PhotoCarousel({ photos, onAdd, onRemove, onRetry, required, disabled }:
           type="file"
           accept="image/*"
           multiple
-          capture="environment"
           style={{ display: 'none' }}
           onChange={e => e.target.files && onAdd(e.target.files)}
         />
