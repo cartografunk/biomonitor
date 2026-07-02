@@ -147,15 +147,21 @@ function PhotoCarousel({ photos, onAdd, onRemove, onRetry, required, disabled }:
   const inputRef = useRef<HTMLInputElement>(null)
   const [current, setCurrent] = useState(0)
   const [pasteError, setPasteError] = useState<string | null>(null)
+  const [isDraggingPhoto, setIsDraggingPhoto] = useState(false)
 
   const handleKey = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowLeft') setCurrent(c => Math.max(0, c - 1))
     if (e.key === 'ArrowRight') setCurrent(c => Math.min(photos.length - 1, c + 1))
   }
 
-  const addPastedFiles = (files: File[]) => {
+  const imageFilesFromItems = (items: DataTransferItemList) => Array.from(items)
+    .filter(item => item.kind === 'file' && item.type.startsWith('image/'))
+    .map(item => item.getAsFile())
+    .filter((file): file is File => file !== null)
+
+  const addExternalFiles = (files: File[], emptyMessage: string) => {
     if (files.length === 0) {
-      setPasteError('No hay imagen en el portapapeles.')
+      setPasteError(emptyMessage)
       return
     }
     setPasteError(null)
@@ -163,15 +169,12 @@ function PhotoCarousel({ photos, onAdd, onRemove, onRetry, required, disabled }:
   }
 
   const handlePaste = (event: React.ClipboardEvent) => {
-    const files = Array.from(event.clipboardData.items)
-      .filter(item => item.type.startsWith('image/'))
-      .map(item => item.getAsFile())
-      .filter((file): file is File => file !== null)
+    const files = imageFilesFromItems(event.clipboardData.items)
 
     if (files.length === 0) return
     event.preventDefault()
     console.info('[Biomonitor] Imagen pegada en carrusel', { count: files.length })
-    addPastedFiles(files)
+    addExternalFiles(files, 'No hay imagen en el portapapeles.')
   }
 
   const handleReadClipboard = async () => {
@@ -196,15 +199,45 @@ function PhotoCarousel({ photos, onAdd, onRemove, onRetry, required, disabled }:
       }
 
       console.info('[Biomonitor] Imagen leida desde boton de portapapeles', { count: files.length })
-      addPastedFiles(files)
+      addExternalFiles(files, 'No hay imagen en el portapapeles.')
     } catch (clipboardError) {
       console.warn('[Biomonitor] No se pudo leer el portapapeles', clipboardError)
       setPasteError('No se pudo leer el portapapeles. Usa Ctrl+V o revisa permisos del navegador.')
     }
   }
 
+  const handleDragOver = (event: React.DragEvent) => {
+    if (disabled) return
+    const hasImage = Array.from(event.dataTransfer.items)
+      .some(item => item.kind === 'file' && item.type.startsWith('image/'))
+    if (!hasImage) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'copy'
+    setIsDraggingPhoto(true)
+  }
+
+  const handleDrop = (event: React.DragEvent) => {
+    if (disabled) return
+    event.preventDefault()
+    setIsDraggingPhoto(false)
+
+    const files = imageFilesFromItems(event.dataTransfer.items)
+    console.info('[Biomonitor] Imagen arrastrada al carrusel', { count: files.length })
+    addExternalFiles(
+      files,
+      'WhatsApp no entrego un archivo de imagen. Descargala o abre la imagen y copiala antes de pegarla.'
+    )
+  }
+
   return (
-    <div style={{ marginBottom: 16 }} tabIndex={-1} onPaste={handlePaste}>
+    <div
+      style={{ marginBottom: 16 }}
+      tabIndex={-1}
+      onPaste={handlePaste}
+      onDragOver={handleDragOver}
+      onDragLeave={() => setIsDraggingPhoto(false)}
+      onDrop={handleDrop}
+    >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-muted)' }}>
           Fotos ({photos.length}/{required} requerida{required > 1 ? 's' : ''})
@@ -262,15 +295,19 @@ function PhotoCarousel({ photos, onAdd, onRemove, onRetry, required, disabled }:
           onClick={() => inputRef.current?.click()}
           disabled={disabled}
           style={{
-            width: '100%', height: 120, border: '1.5px dashed var(--color-border-strong)',
-            borderRadius: 'var(--radius-md)', background: 'var(--color-bg)',
+            width: '100%', height: 120,
+            border: `1.5px dashed ${isDraggingPhoto ? 'var(--color-accent)' : 'var(--color-border-strong)'}`,
+            borderRadius: 'var(--radius-md)',
+            background: isDraggingPhoto ? 'var(--color-accent-light)' : 'var(--color-bg)',
             display: 'flex', flexDirection: 'column', alignItems: 'center',
             justifyContent: 'center', gap: 6, cursor: disabled ? 'default' : 'pointer',
             opacity: disabled ? 0.55 : 1,
           }}
         >
           <span style={{ fontSize: 24 }}>📷</span>
-          <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>Toca para agregar fotos</span>
+          <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
+            {isDraggingPhoto ? 'Suelta la foto aqui' : 'Toca, pega o arrastra fotos aqui'}
+          </span>
         </button>
       ) : (
         <div
