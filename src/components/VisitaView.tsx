@@ -131,7 +131,7 @@ async function imageToWebP(file: File, maxWidth: number, maxBytes?: number) {
 
 function PhotoCarousel({ photos, onAdd, onRemove, onRetry, required, disabled }: {
   photos: LocalPhoto[]
-  onAdd: (files: FileList) => void
+  onAdd: (files: FileList | File[]) => void
   onRemove: (id: string) => void
   onRetry: (id: string) => void
   required: number
@@ -323,7 +323,7 @@ function PointDrawer({
   onChange: (d: PointDraft) => void
   onClose: () => void
   onSave: () => Promise<void>
-  onUploadPhotos: (files: FileList) => void
+  onUploadPhotos: (files: FileList | File[]) => void
   onRemovePhoto: (id: string) => void
   onRetryPhoto: (id: string) => void
   canEdit: boolean
@@ -331,6 +331,33 @@ function PointDrawer({
   const [saving, setSaving] = useState(false)
 
   const status = pointStatus(point)
+
+  useEffect(() => {
+    if (!canEdit) return
+
+    function handlePaste(event: ClipboardEvent) {
+      const target = event.target
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        (target instanceof HTMLElement && target.isContentEditable)
+      ) {
+        return
+      }
+
+      const files = Array.from(event.clipboardData?.items ?? [])
+        .filter(item => item.type.startsWith('image/'))
+        .map(item => item.getAsFile())
+        .filter((file): file is File => file !== null)
+
+      if (files.length === 0) return
+      event.preventDefault()
+      onUploadPhotos(files)
+    }
+
+    window.addEventListener('paste', handlePaste)
+    return () => window.removeEventListener('paste', handlePaste)
+  }, [canEdit, onUploadPhotos])
 
   return (
     <>
@@ -534,8 +561,17 @@ function PointCard({ point, draft, onClick }: {
 }
 
 // ── Main ─────────────────────────────────────────────────────
-export default function VisitaView({ session, role }: { session: Session; role: UserRole | null }) {
-  const [visitDate, setVisitDate] = useState(TODAY)
+export default function VisitaView({
+  session,
+  role,
+  visitDate,
+  onVisitDateChange,
+}: {
+  session: Session
+  role: UserRole | null
+  visitDate: string
+  onVisitDateChange: (date: string) => void
+}) {
   const [visitId, setVisitId] = useState<string | null>(null)
   const [fixedPointIds, setFixedPointIds] = useState<Record<number, string>>({})
   const [loading, setLoading] = useState(true)
@@ -633,7 +669,7 @@ export default function VisitaView({ session, role }: { session: Session; role: 
       return
     }
     dateChangedByUserRef.current = true
-    setVisitDate(value)
+    onVisitDateChange(value)
   }
 
   const createVisit = async () => {
@@ -887,7 +923,7 @@ export default function VisitaView({ session, role }: { session: Session; role: 
     }
   }
 
-  const uploadPhotos = (pointNumber: number, files: FileList) => {
+  const uploadPhotos = (pointNumber: number, files: FileList | File[]) => {
     if (!canEdit) return
 
     const localPhotos: LocalPhoto[] = Array.from(files).map(file => ({

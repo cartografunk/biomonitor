@@ -21,6 +21,15 @@ const NAV_ITEMS: { id: Tab; label: string }[] = [
   { id: 'reportes', label: 'Reportes' },
 ]
 
+function getMexicoCityDate() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Mexico_City',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
+}
+
 export default function App() {
   const [tab, setTab] = useState<Tab>('mapa')
   const [session, setSession] = useState<Session | null>(null)
@@ -28,6 +37,7 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [passwordFlow, setPasswordFlow] = useState<PasswordFlow>(null)
   const [passwordFlowError, setPasswordFlowError] = useState<string | null>(null)
+  const [visitDate, setVisitDate] = useState(getMexicoCityDate())
 
   useEffect(() => {
     async function initializeAuth() {
@@ -184,8 +194,8 @@ export default function App() {
 
       {/* Main content */}
       <main style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
-        {tab === 'mapa'     && <MapView session={session} />}
-        {tab === 'visita'   && <VisitaView session={session} role={role} />}
+        {tab === 'mapa'     && <MapView session={session} visitDate={visitDate} onVisitDateChange={setVisitDate} />}
+        {tab === 'visita'   && <VisitaView session={session} role={role} visitDate={visitDate} onVisitDateChange={setVisitDate} />}
         {tab === 'agua'     && <AguaView />}
         {tab === 'fotos'    && <PhotosView />}
         {tab === 'reportes' && <ReportesView role={role} />}

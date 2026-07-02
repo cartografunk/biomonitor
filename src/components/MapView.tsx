@@ -45,13 +45,20 @@ const EMPTY_POINT_STATES: PointState[] = FIXED_POINTS.map(point => ({
   status: 'sin_registro',
 }))
 
-export default function MapView({ session }: { session: Session }) {
+export default function MapView({
+  session,
+  visitDate,
+  onVisitDateChange,
+}: {
+  session: Session
+  visitDate: string
+  onVisitDateChange: (date: string) => void
+}) {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstance = useRef<google.maps.Map | null>(null)
   const markersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([])
   const markerPinsRef = useRef<Map<number, HTMLDivElement>>(new Map())
   const [selectedPoint, setSelectedPoint] = useState<number | null>(null)
-  const [visitDate, setVisitDate] = useState(getMexicoCityDate())
 
   // Demo states — will come from Supabase later
   const [pointStates, setPointStates] = useState<PointState[]>([
@@ -179,6 +186,7 @@ export default function MapView({ session }: { session: Session }) {
 
   const selected = FIXED_POINTS.find(p => p.id === selectedPoint)
   const selectedState = pointStates.find(s => s.id === selectedPoint)
+  const today = getMexicoCityDate()
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -196,7 +204,11 @@ export default function MapView({ session }: { session: Session }) {
         <input
           type="date"
           value={visitDate}
-          onChange={e => setVisitDate(e.target.value)}
+          max={today}
+          onChange={e => {
+            if (!e.target.value || e.target.value > today) return
+            onVisitDateChange(e.target.value)
+          }}
           style={{
             flex: 1, border: 'none', background: 'none',
             fontSize: 14, fontWeight: 500, color: 'var(--color-text-primary)',
