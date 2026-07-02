@@ -72,8 +72,25 @@ function escapeCell(value: string | number | null) {
     .replace(/"/g, '&quot;')
 }
 
+function formatMetric(value: number | null | undefined) {
+  if (value === null || value === undefined) return '\u2014'
+  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, '')
+}
+
 function ParamCard({ param, data }: { param: ParamConfig; data: WaterChartRow[] }) {
   const latest = [...data].reverse().find(row => row[param.key] !== null)?.[param.key]
+  const values = data
+    .map(row => row[param.key])
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+  const average = values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : null
+  const maximum = values.length > 0 ? Math.max(...values) : null
+  const minimum = values.length > 0 ? Math.min(...values) : null
+  const stats = [
+    { label: '\u00FAltimo', value: latest, featured: true },
+    { label: 'promedio', value: average, featured: false },
+    { label: 'm\u00E1ximo', value: maximum, featured: false },
+    { label: 'm\u00EDnimo', value: minimum, featured: false },
+  ]
 
   return (
     <div style={{
@@ -92,11 +109,25 @@ function ParamCard({ param, data }: { param: ParamConfig; data: WaterChartRow[] 
             <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 1 }}>{param.unit}</div>
           )}
         </div>
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ fontWeight: 700, fontSize: 22, color: param.color, fontFamily: 'var(--font-mono)' }}>
-            {latest ?? '—'}
-          </div>
-          <div style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>último registro</div>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(2, minmax(58px, 1fr))',
+          gap: '8px 12px',
+          textAlign: 'right',
+        }}>
+          {stats.map(stat => (
+            <div key={stat.label}>
+              <div style={{
+                fontWeight: 700,
+                fontSize: stat.featured ? 20 : 15,
+                color: stat.featured ? param.color : 'var(--color-text-primary)',
+                fontFamily: 'var(--font-mono)',
+              }}>
+                {formatMetric(stat.value)}
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>{stat.label}</div>
+            </div>
+          ))}
         </div>
       </div>
 
