@@ -336,27 +336,20 @@ function PointDrawer({
     if (!canEdit) return
 
     function handlePaste(event: ClipboardEvent) {
-      const target = event.target
-      if (
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        (target instanceof HTMLElement && target.isContentEditable)
-      ) {
-        return
-      }
-
       const files = Array.from(event.clipboardData?.items ?? [])
         .filter(item => item.type.startsWith('image/'))
         .map(item => item.getAsFile())
         .filter((file): file is File => file !== null)
 
       if (files.length === 0) return
+
       event.preventDefault()
+      console.info('[Biomonitor] Imagen pegada desde portapapeles', { count: files.length })
       onUploadPhotos(files)
     }
 
-    window.addEventListener('paste', handlePaste)
-    return () => window.removeEventListener('paste', handlePaste)
+    window.addEventListener('paste', handlePaste, true)
+    return () => window.removeEventListener('paste', handlePaste, true)
   }, [canEdit, onUploadPhotos])
 
   return (
@@ -566,11 +559,13 @@ export default function VisitaView({
   role,
   visitDate,
   onVisitDateChange,
+  onVisitDataChanged,
 }: {
   session: Session
   role: UserRole | null
   visitDate: string
   onVisitDateChange: (date: string) => void
+  onVisitDataChanged: () => void
 }) {
   const [visitId, setVisitId] = useState<string | null>(null)
   const [fixedPointIds, setFixedPointIds] = useState<Record<number, string>>({})
@@ -717,6 +712,7 @@ export default function VisitaView({
 
     setVisitId(data.id)
     await loadPointStatus(data.id)
+    onVisitDataChanged()
     setCreatingVisit(false)
   }
 
@@ -904,6 +900,7 @@ export default function VisitaView({
       }))
 
       await loadPointStatus(currentVisitId)
+      onVisitDataChanged()
     } catch (uploadError) {
       setDrafts(current => ({
         ...current,
@@ -978,7 +975,10 @@ export default function VisitaView({
 
     if (photo?.storageKey) {
       await supabase.from('photos').delete().eq('id', photoId)
-      if (visitId) await loadPointStatus(visitId)
+      if (visitId) {
+        await loadPointStatus(visitId)
+        onVisitDataChanged()
+      }
     }
   }
 
@@ -1010,6 +1010,7 @@ export default function VisitaView({
 
     setError(null)
     await loadPointStatus(currentVisitId)
+    onVisitDataChanged()
   }
 
   const completedCount = points.filter(p => pointStatus(p) === 'completo').length

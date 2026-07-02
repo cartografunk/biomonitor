@@ -38,6 +38,7 @@ export default function App() {
   const [passwordFlow, setPasswordFlow] = useState<PasswordFlow>(null)
   const [passwordFlowError, setPasswordFlowError] = useState<string | null>(null)
   const [visitDate, setVisitDate] = useState(getMexicoCityDate())
+  const [mapRefreshKey, setMapRefreshKey] = useState(0)
 
   useEffect(() => {
     async function initializeAuth() {
@@ -151,6 +152,17 @@ export default function App() {
     await supabase.auth.signOut()
   }
 
+  const handleTabChange = (nextTab: Tab) => {
+    setTab(nextTab)
+    if (nextTab === 'mapa') {
+      setMapRefreshKey(key => key + 1)
+    }
+  }
+
+  const handleVisitDataChanged = () => {
+    setMapRefreshKey(key => key + 1)
+  }
+
   return (
     <div style={{
       height: '100dvh',
@@ -194,8 +206,8 @@ export default function App() {
 
       {/* Main content */}
       <main style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
-        {tab === 'mapa'     && <MapView session={session} visitDate={visitDate} onVisitDateChange={setVisitDate} />}
-        {tab === 'visita'   && <VisitaView session={session} role={role} visitDate={visitDate} onVisitDateChange={setVisitDate} />}
+        {tab === 'mapa'     && <MapView session={session} visitDate={visitDate} onVisitDateChange={setVisitDate} refreshKey={mapRefreshKey} />}
+        {tab === 'visita'   && <VisitaView session={session} role={role} visitDate={visitDate} onVisitDateChange={setVisitDate} onVisitDataChanged={handleVisitDataChanged} />}
         {tab === 'agua'     && <AguaView />}
         {tab === 'fotos'    && <PhotosView />}
         {tab === 'reportes' && <ReportesView role={role} />}
@@ -211,7 +223,7 @@ export default function App() {
         {NAV_ITEMS.map(item => (
           <button
             key={item.id}
-            onClick={() => setTab(item.id)}
+            onClick={() => handleTabChange(item.id)}
             style={{
               flex: 1,
               padding: '12px 0 14px',

@@ -58,10 +58,12 @@ export default function MapView({
   session,
   visitDate,
   onVisitDateChange,
+  refreshKey,
 }: {
   session: Session
   visitDate: string
   onVisitDateChange: (date: string) => void
+  refreshKey: number
 }) {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstance = useRef<google.maps.Map | null>(null)
@@ -80,7 +82,7 @@ export default function MapView({
 
     let isMounted = true
 
-    async function loadPointStates() {
+    async function loadPointStates(attempt = 0) {
       const { data, error } = await supabase
         .from('visit_point_status')
         .select('point_number, photo_status')
@@ -89,6 +91,12 @@ export default function MapView({
       if (!isMounted) return
 
       if (error || !data || data.length === 0) {
+        if (attempt === 0) {
+          window.setTimeout(() => {
+            if (isMounted) void loadPointStates(1)
+          }, 350)
+          return
+        }
         setPointStates(EMPTY_POINT_STATES)
         return
       }
@@ -111,7 +119,7 @@ export default function MapView({
     return () => {
       isMounted = false
     }
-  }, [session.user.id, visitDate])
+  }, [session.user.id, visitDate, refreshKey])
 
   useEffect(() => {
     let isMounted = true
