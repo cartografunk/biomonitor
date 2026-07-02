@@ -175,9 +175,9 @@ export default function PhotosView() {
 
         return {
           id: photo.id,
-          title: fixedPoint ? `P${fixedPoint.point_number} · ${fixedPoint.label}` : 'Evento extraordinario',
+          title: fixedPoint ? `P${fixedPoint.point_number} \u00B7 ${fixedPoint.label}` : 'Evento extraordinario',
           subtitle: event
-            ? `${event.observations ?? 'Sin observaciones'} · importancia ${event.importance}`
+            ? `${event.observations ?? 'Sin observaciones'} \u00B7 importancia ${event.importance}`
             : new Intl.DateTimeFormat('es-MX', {
                 hour: '2-digit',
                 minute: '2-digit',

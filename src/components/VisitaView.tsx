@@ -521,8 +521,8 @@ function PointCard({ point, draft, onClick }: {
         </div>
         <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 3 }}>
           {point.uploaded_photos}/{point.required_photos} foto{point.required_photos > 1 ? 's' : ''}
-          {draft.photos.length > 0 && ` Â· ${draft.photos.length} local${draft.photos.length > 1 ? 'es' : ''}`}
-          {point.is_lab_point && ' · Laboratorio'}
+          {draft.photos.length > 0 && ` \u00B7 ${draft.photos.length} local${draft.photos.length > 1 ? 'es' : ''}`}
+          {point.is_lab_point && ' \u00B7 Laboratorio'}
         </div>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -696,7 +696,7 @@ export default function VisitaView({ session, role }: { session: Session; role: 
 
     const fixedPointId = fixedPointIds[pointNumber]
     if (!fixedPointId) {
-      setError('No se encontrÃ³ el UUID del punto fijo.')
+      setError('No se encontr\u00F3 el UUID del punto fijo.')
       throw new Error('Missing fixed point id')
     }
 
@@ -967,7 +967,7 @@ export default function VisitaView({ session, role }: { session: Session; role: 
         }, { onConflict: 'visit_point_record_id' })
 
       if (waterError) {
-        setError('No se pudieron guardar los parÃ¡metros de agua.')
+        setError('No se pudieron guardar los par\u00E1metros de agua.')
         throw waterError
       }
     }

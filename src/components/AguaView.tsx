@@ -270,7 +270,7 @@ export default function AguaView() {
         <div>
         <div style={{ fontWeight: 600, fontSize: 15 }}>Calidad del agua</div>
         <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 2 }}>
-          Punto 4 — Cono Imhoff · histórico
+          Punto 4 — Cono Imhoff {'\u00B7'} histórico
         </div>
         </div>
         <button
