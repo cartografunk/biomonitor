@@ -4,8 +4,13 @@ import { supabase } from '../lib/supabase'
 export default function LoginView() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [guestLoading, setGuestLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const guestEmail = import.meta.env.VITE_GUEST_EMAIL as string | undefined
+  const guestPassword = import.meta.env.VITE_GUEST_PASSWORD as string | undefined
+  const hasGuestAccess = Boolean(guestEmail && guestPassword)
 
   const handleLogin = async () => {
     setLoading(true)
@@ -13,6 +18,19 @@ export default function LoginView() {
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) setError('Correo o contraseña incorrectos')
     setLoading(false)
+  }
+
+  const handleGuestLogin = async () => {
+    if (!guestEmail || !guestPassword) return
+
+    setGuestLoading(true)
+    setError(null)
+    const { error } = await supabase.auth.signInWithPassword({
+      email: guestEmail,
+      password: guestPassword,
+    })
+    if (error) setError('No se pudo entrar como invitado')
+    setGuestLoading(false)
   }
 
   return (
@@ -25,7 +43,6 @@ export default function LoginView() {
       background: 'var(--color-bg)',
       padding: '0 32px',
     }}>
-      {/* Logo */}
       <div style={{ marginBottom: 32, textAlign: 'center' }}>
         <div style={{ fontSize: 32, marginBottom: 8 }}>💧</div>
         <div style={{ fontWeight: 700, fontSize: 22, letterSpacing: '-0.02em' }}>biomonitor</div>
@@ -34,7 +51,6 @@ export default function LoginView() {
         </div>
       </div>
 
-      {/* Form */}
       <div style={{ width: '100%', maxWidth: 360, display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div>
           <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-muted)', display: 'block', marginBottom: 5 }}>
@@ -62,23 +78,42 @@ export default function LoginView() {
           <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-muted)', display: 'block', marginBottom: 5 }}>
             Contraseña
           </label>
-          <input
-            type="password"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            placeholder="••••••••"
-            autoComplete="current-password"
-            onKeyDown={e => e.key === 'Enter' && handleLogin()}
-            style={{
-              width: '100%', boxSizing: 'border-box',
-              border: '1.5px solid var(--color-border)',
-              borderRadius: 'var(--radius-md)',
-              padding: '11px 14px',
-              fontSize: 15, fontFamily: 'var(--font-sans)',
-              color: 'var(--color-text-primary)',
-              background: 'var(--color-surface)', outline: 'none',
-            }}
-          />
+          <div style={{ position: 'relative' }}>
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              placeholder="••••••••"
+              autoComplete="current-password"
+              onKeyDown={e => e.key === 'Enter' && handleLogin()}
+              style={{
+                width: '100%', boxSizing: 'border-box',
+                border: '1.5px solid var(--color-border)',
+                borderRadius: 'var(--radius-md)',
+                padding: '11px 48px 11px 14px',
+                fontSize: 15, fontFamily: 'var(--font-sans)',
+                color: 'var(--color-text-primary)',
+                background: 'var(--color-surface)', outline: 'none',
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(v => !v)}
+              title={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+              style={{
+                position: 'absolute', right: 8, top: '50%',
+                transform: 'translateY(-50%)',
+                width: 32, height: 32,
+                border: 'none',
+                background: 'transparent',
+                color: 'var(--color-text-muted)',
+                cursor: 'pointer',
+                fontSize: 16,
+              }}
+            >
+              {showPassword ? '◐' : '○'}
+            </button>
+          </div>
         </div>
 
         {error && (
@@ -109,6 +144,26 @@ export default function LoginView() {
         >
           {loading ? 'Entrando...' : 'Entrar'}
         </button>
+
+        {hasGuestAccess && (
+          <button
+            onClick={handleGuestLogin}
+            disabled={guestLoading || loading}
+            style={{
+              width: '100%', padding: '12px 0',
+              background: 'var(--color-surface)',
+              color: 'var(--color-text-primary)',
+              border: '1.5px solid var(--color-border)',
+              borderRadius: 'var(--radius-md)',
+              fontSize: 14,
+              fontWeight: 600,
+              cursor: guestLoading || loading ? 'not-allowed' : 'pointer',
+              fontFamily: 'var(--font-sans)',
+            }}
+          >
+            {guestLoading ? 'Entrando...' : 'Ver sin iniciar sesión'}
+          </button>
+        )}
       </div>
     </div>
   )

@@ -5,17 +5,19 @@ import type { UserRole } from './types'
 import MapView from './components/MapView'
 import VisitaView from './components/VisitaView'
 import AguaView from './components/AguaView'
+import PhotosView from './components/PhotosView'
 import ReportesView from './components/ReportesView'
 import LoginView from './components/LoginView'
 import SetPasswordView from './components/SetPasswordView'
 
-type Tab = 'mapa' | 'visita' | 'agua' | 'reportes'
+type Tab = 'mapa' | 'visita' | 'agua' | 'fotos' | 'reportes'
 type PasswordFlow = 'invite' | 'recovery' | null
 
 const NAV_ITEMS: { id: Tab; label: string }[] = [
   { id: 'mapa',     label: 'Mapa' },
   { id: 'visita',   label: 'Visita' },
   { id: 'agua',     label: 'Agua' },
+  { id: 'fotos',    label: 'Fotos' },
   { id: 'reportes', label: 'Reportes' },
 ]
 
@@ -185,6 +187,7 @@ export default function App() {
         {tab === 'mapa'     && <MapView session={session} />}
         {tab === 'visita'   && <VisitaView session={session} role={role} />}
         {tab === 'agua'     && <AguaView />}
+        {tab === 'fotos'    && <PhotosView />}
         {tab === 'reportes' && <ReportesView role={role} />}
       </main>
 

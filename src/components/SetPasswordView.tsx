@@ -7,6 +7,70 @@ interface SetPasswordViewProps {
   onCancel: () => void
 }
 
+function PasswordInput({
+  label,
+  value,
+  disabled,
+  placeholder,
+  onChange,
+  onEnter,
+}: {
+  label: string
+  value: string
+  disabled?: boolean
+  placeholder: string
+  onChange: (value: string) => void
+  onEnter?: () => void
+}) {
+  const [visible, setVisible] = useState(false)
+
+  return (
+    <div>
+      <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-muted)', display: 'block', marginBottom: 5 }}>
+        {label}
+      </label>
+      <div style={{ position: 'relative' }}>
+        <input
+          type={visible ? 'text' : 'password'}
+          value={value}
+          disabled={disabled}
+          onChange={e => onChange(e.target.value)}
+          placeholder={placeholder}
+          autoComplete="new-password"
+          onKeyDown={e => e.key === 'Enter' && onEnter?.()}
+          style={{
+            width: '100%', boxSizing: 'border-box',
+            border: '1.5px solid var(--color-border)',
+            borderRadius: 'var(--radius-md)',
+            padding: '11px 48px 11px 14px',
+            fontSize: 15, fontFamily: 'var(--font-sans)',
+            color: 'var(--color-text-primary)',
+            background: 'var(--color-surface)', outline: 'none',
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => setVisible(v => !v)}
+          disabled={disabled}
+          title={visible ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+          style={{
+            position: 'absolute', right: 8, top: '50%',
+            transform: 'translateY(-50%)',
+            width: 32, height: 32,
+            border: 'none',
+            background: 'transparent',
+            color: 'var(--color-text-muted)',
+            cursor: disabled ? 'default' : 'pointer',
+            fontSize: 16,
+          }}
+        >
+          {visible ? '◐' : '○'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function SetPasswordView({ error, onComplete, onCancel }: SetPasswordViewProps) {
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -68,52 +132,22 @@ export default function SetPasswordView({ error, onComplete, onCancel }: SetPass
           </div>
         )}
 
-        <div>
-          <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-muted)', display: 'block', marginBottom: 5 }}>
-            Nueva contraseña
-          </label>
-          <input
-            type="password"
-            value={password}
-            disabled={Boolean(error)}
-            onChange={e => setPassword(e.target.value)}
-            placeholder="Mínimo 8 caracteres"
-            autoComplete="new-password"
-            style={{
-              width: '100%', boxSizing: 'border-box',
-              border: '1.5px solid var(--color-border)',
-              borderRadius: 'var(--radius-md)',
-              padding: '11px 14px',
-              fontSize: 15, fontFamily: 'var(--font-sans)',
-              color: 'var(--color-text-primary)',
-              background: 'var(--color-surface)', outline: 'none',
-            }}
-          />
-        </div>
+        <PasswordInput
+          label="Nueva contraseña"
+          value={password}
+          disabled={Boolean(error)}
+          placeholder="Mínimo 8 caracteres"
+          onChange={setPassword}
+        />
 
-        <div>
-          <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-muted)', display: 'block', marginBottom: 5 }}>
-            Confirmar contraseña
-          </label>
-          <input
-            type="password"
-            value={confirm}
-            disabled={Boolean(error)}
-            onChange={e => setConfirm(e.target.value)}
-            placeholder="Repite la contraseña"
-            autoComplete="new-password"
-            onKeyDown={e => e.key === 'Enter' && handleSubmit()}
-            style={{
-              width: '100%', boxSizing: 'border-box',
-              border: '1.5px solid var(--color-border)',
-              borderRadius: 'var(--radius-md)',
-              padding: '11px 14px',
-              fontSize: 15, fontFamily: 'var(--font-sans)',
-              color: 'var(--color-text-primary)',
-              background: 'var(--color-surface)', outline: 'none',
-            }}
-          />
-        </div>
+        <PasswordInput
+          label="Confirmar contraseña"
+          value={confirm}
+          disabled={Boolean(error)}
+          placeholder="Repite la contraseña"
+          onChange={setConfirm}
+          onEnter={handleSubmit}
+        />
 
         {!error && password && password.length < 8 && (
           <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
