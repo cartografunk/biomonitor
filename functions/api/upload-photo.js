@@ -19,6 +19,24 @@ function cleanPublicUrl(url) {
   return url.replace(/\/$/, '')
 }
 
+function extensionForImage(type) {
+  switch (type) {
+    case 'image/jpeg':
+    case 'image/jpg':
+      return 'jpg'
+    case 'image/png':
+      return 'png'
+    case 'image/webp':
+      return 'webp'
+    case 'image/gif':
+      return 'gif'
+    case 'image/avif':
+      return 'avif'
+    default:
+      return 'img'
+  }
+}
+
 async function requireSupabaseUser(request, env) {
   const authorization = request.headers.get('authorization')
   if (!authorization?.startsWith('Bearer ')) {
@@ -102,8 +120,8 @@ export async function onRequestPost({ request, env }) {
       return json({ error: 'image and thumbnail are required' }, 400)
     }
 
-    if (image.type !== 'image/webp' || thumbnail.type !== 'image/webp') {
-      return json({ error: 'Only image/webp files are accepted' }, 400)
+    if (!image.type.startsWith('image/') || !thumbnail.type.startsWith('image/')) {
+      return json({ error: 'Only image files are accepted' }, 400)
     }
 
     if (image.size > MAX_IMAGE_BYTES) {
@@ -115,9 +133,11 @@ export async function onRequestPost({ request, env }) {
     const safePointNumber = pointNumber.replace(/[^0-9]/g, '')
     const date = safeVisitDate || new Date().toISOString().slice(0, 10)
     const id = crypto.randomUUID()
+    const imageExtension = extensionForImage(image.type)
+    const thumbnailExtension = extensionForImage(thumbnail.type)
     const prefix = `visits/${date}/${safeVisitId || 'unknown'}/p${safePointNumber || 'x'}`
-    const storageKey = `${prefix}/${id}.webp`
-    const thumbnailKey = `${prefix}/${id}-thumb.webp`
+    const storageKey = `${prefix}/${id}.${imageExtension}`
+    const thumbnailKey = `${prefix}/${id}-thumb.${thumbnailExtension}`
 
     await putObject({ env, key: storageKey, file: image })
     await putObject({ env, key: thumbnailKey, file: thumbnail })

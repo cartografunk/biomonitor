@@ -96,44 +96,6 @@ function photoUrl(key: string) {
   return R2_PUBLIC_URL ? `${R2_PUBLIC_URL}/${key}` : ''
 }
 
-async function imageToWebP(file: File, maxWidth: number, maxBytes?: number) {
-  const url = URL.createObjectURL(file)
-  try {
-    const image = new Image()
-    image.decoding = 'sync'
-    image.src = url
-    await image.decode()
-
-    const naturalWidth = image.naturalWidth || image.width
-    const naturalHeight = image.naturalHeight || image.height
-    if (!naturalWidth || !naturalHeight) throw new Error('La imagen no tiene dimensiones validas.')
-
-    const scale = Math.min(1, maxWidth / naturalWidth)
-    const width = Math.max(1, Math.round(naturalWidth * scale))
-    const height = Math.max(1, Math.round(naturalHeight * scale))
-    const canvas = document.createElement('canvas')
-    canvas.width = width
-    canvas.height = height
-
-    const ctx = canvas.getContext('2d')
-    if (!ctx) throw new Error('No se pudo procesar la imagen.')
-    ctx.drawImage(image, 0, 0, width, height)
-
-    let quality = 0.86
-    let blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/webp', quality))
-    while (blob && maxBytes && blob.size > maxBytes && quality > 0.45) {
-      quality -= 0.08
-      blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/webp', quality))
-    }
-
-    if (!blob) throw new Error('No se pudo convertir la imagen.')
-    if (maxBytes && blob.size > maxBytes) throw new Error('La foto supera 2 MB aun comprimida.')
-    return new File([blob], `${crypto.randomUUID()}.webp`, { type: 'image/webp' })
-  } finally {
-    URL.revokeObjectURL(url)
-  }
-}
-
 // ── Sub-components ───────────────────────────────────────────
 
 function PhotoCarousel({ photos, onAdd, onRemove, onRetry, required, disabled }: {
@@ -936,15 +898,15 @@ export default function VisitaView({
       const currentVisitId = visitId
       if (!currentVisitId) throw new Error('Primero crea una visita.')
       const visitPointRecordId = await ensureVisitPointRecord(pointNumber)
-      const image = await imageToWebP(file, 1600, 2 * 1024 * 1024)
-      const thumbnail = await imageToWebP(file, 300)
+      if (!file.type.startsWith('image/')) throw new Error('El archivo no es una imagen.')
+      if (file.size > 2 * 1024 * 1024) throw new Error('La foto supera 2 MB.')
       const { data: sessionData } = await supabase.auth.getSession()
       const token = sessionData.session?.access_token
       if (!token) throw new Error('Sesión inválida.')
 
       const form = new FormData()
-      form.append('image', image)
-      form.append('thumbnail', thumbnail)
+      form.append('image', file)
+      form.append('thumbnail', file)
       form.append('visit_id', currentVisitId)
       form.append('visit_date', visitDate)
       form.append('point_number', String(pointNumber))
@@ -978,7 +940,7 @@ export default function VisitaView({
           visit_point_record_id: visitPointRecordId,
           storage_key: storageKey,
           thumbnail_key: thumbnailKey,
-          file_size_kb: result.file_size_kb ?? Math.ceil(image.size / 1024),
+          file_size_kb: result.file_size_kb ?? Math.ceil(file.size / 1024),
           captured_at: capturedAtForVisitDate(visitDate),
         })
         .select('id')
@@ -999,7 +961,7 @@ export default function VisitaView({
                   name: file.name,
                   storageKey,
                   thumbnailKey,
-                  fileSizeKb: result.file_size_kb ?? Math.ceil(image.size / 1024),
+                  fileSizeKb: result.file_size_kb ?? Math.ceil(file.size / 1024),
                   status: 'ready',
                 }
               : p
