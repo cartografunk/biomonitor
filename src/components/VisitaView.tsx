@@ -96,6 +96,116 @@ function photoUrl(key: string) {
   return R2_PUBLIC_URL ? `${R2_PUBLIC_URL}/${key}` : ''
 }
 
+const MAX_UPLOAD_IMAGE_BYTES = 2 * 1024 * 1024
+const TARGET_UPLOAD_IMAGE_BYTES = 1800 * 1024
+
+async function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number) {
+  const blob = await new Promise<Blob | null>(resolve => {
+    canvas.toBlob(resolve, type, quality)
+  })
+
+  if (!blob) throw new Error('No se pudo preparar la imagen para subir.')
+  return blob
+}
+
+async function loadImage(file: File) {
+  const url = URL.createObjectURL(file)
+
+  try {
+    const image = new Image()
+    image.decoding = 'async'
+    image.src = url
+    await image.decode()
+    return image
+  } catch {
+    URL.revokeObjectURL(url)
+    throw new Error('No se pudo leer la imagen.')
+  }
+}
+
+function compressedFileName(name: string, suffix: string) {
+  const baseName = name.replace(/\.[^/.]+$/, '') || 'foto'
+  return `${baseName}${suffix}.jpg`
+}
+
+async function compressImageFile(
+  file: File,
+  options: {
+    maxDimension: number
+    targetBytes: number
+    suffix: string
+  },
+) {
+  const image = await loadImage(file)
+  const sourceUrl = image.src
+
+  try {
+    let dimensionLimit = options.maxDimension
+    let bestBlob: Blob | null = null
+
+    while (dimensionLimit >= 720) {
+      const scale = Math.min(1, dimensionLimit / image.naturalWidth, dimensionLimit / image.naturalHeight)
+      const width = Math.max(1, Math.round(image.naturalWidth * scale))
+      const height = Math.max(1, Math.round(image.naturalHeight * scale))
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+
+      const context = canvas.getContext('2d')
+      if (!context) throw new Error('No se pudo preparar la imagen para subir.')
+
+      context.fillStyle = '#fff'
+      context.fillRect(0, 0, width, height)
+      context.drawImage(image, 0, 0, width, height)
+
+      for (let quality = 0.82; quality >= 0.46; quality -= 0.08) {
+        const blob = await canvasToBlob(canvas, 'image/jpeg', quality)
+        bestBlob = blob
+
+        if (blob.size <= options.targetBytes) {
+          return new File([blob], compressedFileName(file.name, options.suffix), {
+            type: 'image/jpeg',
+            lastModified: Date.now(),
+          })
+        }
+      }
+
+      dimensionLimit = Math.floor(dimensionLimit * 0.78)
+    }
+
+    if (!bestBlob) throw new Error('No se pudo preparar la imagen para subir.')
+
+    return new File([bestBlob], compressedFileName(file.name, options.suffix), {
+      type: 'image/jpeg',
+      lastModified: Date.now(),
+    })
+  } finally {
+    URL.revokeObjectURL(sourceUrl)
+  }
+}
+
+async function prepareUploadImages(file: File) {
+  const image = file.size <= MAX_UPLOAD_IMAGE_BYTES
+    ? file
+    : await compressImageFile(file, {
+        maxDimension: 1600,
+        targetBytes: TARGET_UPLOAD_IMAGE_BYTES,
+        suffix: '',
+      })
+
+  const thumbnail = await compressImageFile(file, {
+    maxDimension: 520,
+    targetBytes: 220 * 1024,
+    suffix: '-thumb',
+  })
+
+  if (image.size > MAX_UPLOAD_IMAGE_BYTES) {
+    throw new Error('La foto es demasiado pesada incluso despues de comprimirla.')
+  }
+
+  return { image, thumbnail }
+}
+
 // ── Sub-components ───────────────────────────────────────────
 
 function PhotoCarousel({ photos, onAdd, onRemove, onRetry, required, disabled }: {
@@ -928,14 +1038,14 @@ export default function VisitaView({
       if (!currentVisitId) throw new Error('Primero crea una visita.')
       const visitPointRecordId = await ensureVisitPointRecord(pointNumber)
       if (!file.type.startsWith('image/')) throw new Error('El archivo no es una imagen.')
-      if (file.size > 2 * 1024 * 1024) throw new Error('La foto supera 2 MB.')
+      const { image, thumbnail } = await prepareUploadImages(file)
       const { data: sessionData } = await supabase.auth.getSession()
       const token = sessionData.session?.access_token
       if (!token) throw new Error('Sesión inválida.')
 
       const form = new FormData()
-      form.append('image', file)
-      form.append('thumbnail', file)
+      form.append('image', image)
+      form.append('thumbnail', thumbnail)
       form.append('visit_id', currentVisitId)
       form.append('visit_date', visitDate)
       form.append('point_number', String(pointNumber))
@@ -969,7 +1079,7 @@ export default function VisitaView({
           visit_point_record_id: visitPointRecordId,
           storage_key: storageKey,
           thumbnail_key: thumbnailKey,
-          file_size_kb: result.file_size_kb ?? Math.ceil(file.size / 1024),
+          file_size_kb: result.file_size_kb ?? Math.ceil(image.size / 1024),
           captured_at: capturedAtForVisitDate(visitDate),
         })
         .select('id')
@@ -990,7 +1100,7 @@ export default function VisitaView({
                   name: file.name,
                   storageKey,
                   thumbnailKey,
-                  fileSizeKb: result.file_size_kb ?? Math.ceil(file.size / 1024),
+                  fileSizeKb: result.file_size_kb ?? Math.ceil(image.size / 1024),
                   status: 'ready',
                 }
               : p
