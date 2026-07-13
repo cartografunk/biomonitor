@@ -40,13 +40,16 @@ function getMexicoCityDate() {
   }).format(new Date())
 }
 
-const EMPTY_POINT_STATES: PointState[] = FIXED_POINTS.map(point => ({
-  id: point.id,
-  status: 'sin_registro',
-}))
+function applyPointColors(
+  pins: Map<number, HTMLDivElement>,
+  states: PointState[] | null,
+) {
+  pins.forEach(pin => {
+    pin.style.opacity = states ? '1' : '0'
+    pin.style.pointerEvents = states ? 'auto' : 'none'
+  })
 
-function applyPointColors(pins: Map<number, HTMLDivElement>, states: PointState[]) {
-  states.forEach(state => {
+  states?.forEach(state => {
     const pin = pins.get(state.id)
     if (pin) {
       pin.style.background = STATUS_COLOR[state.status]
@@ -69,13 +72,10 @@ export default function MapView({
   const mapInstance = useRef<google.maps.Map | null>(null)
   const markersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([])
   const markerPinsRef = useRef<Map<number, HTMLDivElement>>(new Map())
-  const pointStatesRef = useRef<PointState[]>(EMPTY_POINT_STATES)
+  const pointStatesRef = useRef<PointState[] | null>(null)
   const [selectedPoint, setSelectedPoint] = useState<number | null>(null)
 
-  // Demo states — will come from Supabase later
-  const [pointStates, setPointStates] = useState<PointState[]>([
-    ...EMPTY_POINT_STATES,
-  ])
+  const [pointStates, setPointStates] = useState<PointState[] | null>(null)
 
   useEffect(() => {
     if (!session.user.id) return
@@ -83,6 +83,10 @@ export default function MapView({
     let isMounted = true
 
     async function loadPointStates(attempt = 0) {
+      if (attempt === 0) {
+        setPointStates(null)
+      }
+
       const { data, error } = await supabase
         .from('visit_point_status')
         .select('point_number, photo_status')
@@ -90,19 +94,20 @@ export default function MapView({
 
       if (!isMounted) return
 
-      if (error || !data || data.length === 0) {
-        if (attempt === 0) {
+      if (error) {
+        if (attempt < 2) {
           window.setTimeout(() => {
-            if (isMounted) void loadPointStates(1)
-          }, 350)
+            if (isMounted) void loadPointStates(attempt + 1)
+          }, attempt === 0 ? 350 : 800)
           return
         }
-        setPointStates(EMPTY_POINT_STATES)
+
+        console.error('No se pudo cargar visit_point_status', error)
         return
       }
 
       const statusByPoint = new Map(
-        (data as VisitPointStatusRow[]).map(row => [
+        ((data ?? []) as VisitPointStatusRow[]).map(row => [
           row.point_number,
           row.photo_status === 'completo' ? 'completo' : 'pendiente',
         ] as const)
@@ -114,7 +119,7 @@ export default function MapView({
       })))
     }
 
-    loadPointStates()
+    void loadPointStates()
 
     return () => {
       isMounted = false
@@ -153,7 +158,9 @@ export default function MapView({
 
       // Create markers for each fixed point
       markersRef.current = FIXED_POINTS.map(point => {
-        const currentStatus = pointStatesRef.current.find(state => state.id === point.id)?.status ?? 'sin_registro'
+        const currentStatus =
+          pointStatesRef.current?.find(state => state.id === point.id)?.status
+          ?? 'sin_registro'
         const pin = document.createElement('div')
         pin.style.cssText = `
           width: 32px; height: 32px; border-radius: 50%;
@@ -163,6 +170,8 @@ export default function MapView({
           font-size: 12px; font-weight: 500; color: white;
           box-shadow: 0 2px 6px rgba(0,0,0,0.3);
           cursor: pointer;
+          opacity: ${pointStatesRef.current ? 1 : 0};
+          pointer-events: ${pointStatesRef.current ? 'auto' : 'none'};
         `
         pin.textContent = `P${point.id}`
         markerPins.set(point.id, pin)
@@ -202,7 +211,7 @@ export default function MapView({
   }, [pointStates])
 
   const selected = FIXED_POINTS.find(p => p.id === selectedPoint)
-  const selectedState = pointStates.find(s => s.id === selectedPoint)
+  const selectedState = pointStates?.find(s => s.id === selectedPoint)
   const today = getMexicoCityDate()
 
   return (

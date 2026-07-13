@@ -130,14 +130,44 @@ function PhotoCarousel({ photos, onAdd, onRemove, onRetry, required, disabled }:
     onAdd(files)
   }
 
-  const handlePaste = (event: React.ClipboardEvent) => {
-    const files = imageFilesFromItems(event.clipboardData.items)
+  useEffect(() => {
+    if (disabled) return
 
-    if (files.length === 0) return
-    event.preventDefault()
-    console.info('[Biomonitor] Imagen pegada en carrusel', { count: files.length })
-    addExternalFiles(files, 'No hay imagen en el portapapeles.')
-  }
+    const handleDocumentPaste = (event: ClipboardEvent) => {
+      const target = event.target
+
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        (target instanceof HTMLElement && target.isContentEditable)
+      ) {
+        return
+      }
+
+      const files = Array.from(event.clipboardData?.items ?? [])
+        .filter(item => item.kind === 'file' && item.type.startsWith('image/'))
+        .map(item => item.getAsFile())
+        .filter((file): file is File => file !== null)
+
+      if (files.length === 0) return
+
+      event.preventDefault()
+      setPasteError(null)
+
+      console.info('[Biomonitor] Ctrl+V de imagen detectado', {
+        count: files.length,
+        types: files.map(file => file.type),
+      })
+
+      onAdd(files)
+    }
+
+    document.addEventListener('paste', handleDocumentPaste)
+
+    return () => {
+      document.removeEventListener('paste', handleDocumentPaste)
+    }
+  }, [disabled, onAdd])
 
   const handleReadClipboard = async () => {
     if (disabled) return
@@ -195,7 +225,6 @@ function PhotoCarousel({ photos, onAdd, onRemove, onRetry, required, disabled }:
     <div
       style={{ marginBottom: 16 }}
       tabIndex={-1}
-      onPaste={handlePaste}
       onDragOver={handleDragOver}
       onDragLeave={() => setIsDraggingPhoto(false)}
       onDrop={handleDrop}
