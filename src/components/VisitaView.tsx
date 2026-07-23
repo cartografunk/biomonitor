@@ -786,6 +786,7 @@ export default function VisitaView({
   const [drafts, setDrafts] = useState<Record<number, PointDraft>>(
     Object.fromEntries(DEFAULT_POINTS.map(p => [p.point_number, { photos: [], observations: '' }]))
   )
+  const uploadQueueRef = useRef<Promise<void>>(Promise.resolve())
   const dateChangedByUserRef = useRef(false)
   const canEdit = role === 'editor'
 
@@ -1032,7 +1033,7 @@ export default function VisitaView({
     }
   }, [loadPhotos, visitId])
 
-  const uploadPhoto = async (pointNumber: number, localId: string, file: File) => {
+  const uploadPhoto = async (pointNumber: number, localId: string, file: File, previewUrl?: string) => {
     try {
       const currentVisitId = visitId
       if (!currentVisitId) throw new Error('Primero crea una visita.')
@@ -1108,6 +1109,10 @@ export default function VisitaView({
         },
       }))
 
+      if (previewUrl?.startsWith('blob:')) {
+        URL.revokeObjectURL(previewUrl)
+      }
+
       await loadPointStatus(currentVisitId)
       onVisitDataChanged()
     } catch (uploadError) {
@@ -1127,6 +1132,14 @@ export default function VisitaView({
         },
       }))
     }
+  }
+
+  const enqueuePhotoUpload = (pointNumber: number, photo: LocalPhoto) => {
+    if (!photo.file) return
+
+    uploadQueueRef.current = uploadQueueRef.current
+      .catch(() => undefined)
+      .then(() => uploadPhoto(pointNumber, photo.id, photo.file!, photo.url))
   }
 
   const uploadPhotos = (pointNumber: number, files: FileList | File[]) => {
@@ -1151,11 +1164,7 @@ export default function VisitaView({
       },
     }))
 
-    localPhotos.forEach(photo => {
-      if (photo.file) {
-        uploadPhoto(pointNumber, photo.id, photo.file)
-      }
-    })
+    localPhotos.forEach(photo => enqueuePhotoUpload(pointNumber, photo))
   }
 
   const retryPhoto = (pointNumber: number, photoId: string) => {
@@ -1172,7 +1181,7 @@ export default function VisitaView({
       },
     }))
 
-    uploadPhoto(pointNumber, photoId, photo.file)
+    enqueuePhotoUpload(pointNumber, photo)
   }
 
   const removePhoto = async (pointNumber: number, photoId: string) => {
@@ -1184,6 +1193,10 @@ export default function VisitaView({
         photos: current[pointNumber].photos.filter(p => p.id !== photoId),
       },
     }))
+
+    if (photo?.url.startsWith('blob:')) {
+      URL.revokeObjectURL(photo.url)
+    }
 
     if (photo?.storageKey) {
       await supabase.from('photos').delete().eq('id', photoId)
