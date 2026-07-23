@@ -349,7 +349,7 @@ export default function PhotosView() {
                 <img
                   src={selectedPhoto.imageUrl || selectedPhoto.fullUrl}
                   alt={selectedPhoto.title}
-                  style={{ width: '100%', height: 260, objectFit: 'cover', display: 'block' }}
+                  style={{ width: '100%', height: 260, objectFit: 'contain', display: 'block' }}
                 />
               </a>
             ) : (
@@ -410,7 +410,7 @@ export default function PhotosView() {
                     overflow: 'hidden',
                     background: 'var(--color-surface)',
                     cursor: 'pointer',
-                    aspectRatio: '1 / 1',
+                    aspectRatio: '4 / 3',
                   }}
                   title={photo.title}
                 >
@@ -418,7 +418,7 @@ export default function PhotosView() {
                     <img
                       src={photo.imageUrl || photo.fullUrl}
                       alt={photo.title}
-                      style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                      style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
                     />
                   )}
                   {photo.kind === 'extra_event' && (

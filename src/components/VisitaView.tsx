@@ -420,7 +420,7 @@ function PhotoCarousel({ photos, onAdd, onRemove, onRetry, required, disabled }:
           <img
             src={photos[current].url}
             alt={photos[current].name}
-            style={{ width: '100%', height: 200, objectFit: 'cover', display: 'block' }}
+            style={{ width: '100%', height: 200, objectFit: 'contain', display: 'block' }}
           />
           {photos[current].status === 'uploading' && (
             <div style={{
