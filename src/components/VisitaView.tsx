@@ -141,9 +141,10 @@ async function compressImageFile(
 
   try {
     let dimensionLimit = options.maxDimension
+    const minimumDimension = Math.min(320, options.maxDimension)
     let bestBlob: Blob | null = null
 
-    while (dimensionLimit >= 720) {
+    while (dimensionLimit >= minimumDimension) {
       const scale = Math.min(1, dimensionLimit / image.naturalWidth, dimensionLimit / image.naturalHeight)
       const width = Math.max(1, Math.round(image.naturalWidth * scale))
       const height = Math.max(1, Math.round(image.naturalHeight * scale))
