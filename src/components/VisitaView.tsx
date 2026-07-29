@@ -92,6 +92,14 @@ function numericOrNull(value: string) {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+function inputValue(value: number | null) {
+  return value === null ? '' : String(value)
+}
+
+function hasWaterInput(water: WaterParams) {
+  return Object.values(water).some(value => value.trim() !== '')
+}
+
 function photoUrl(key: string) {
   return R2_PUBLIC_URL ? `${R2_PUBLIC_URL}/${key}` : ''
 }
@@ -1034,6 +1042,64 @@ export default function VisitaView({
     }
   }, [loadPhotos, visitId])
 
+  const loadWaterMeasurements = useCallback(async (currentVisitId: string) => {
+    const { data, error: waterError } = await supabase
+      .from('water_measurements')
+      .select(`
+        temperatura_c,
+        ph,
+        conductividad,
+        solidos_disueltos,
+        oxigeno_disuelto_mgl,
+        oxigeno_disuelto_pct,
+        visit_point_records!inner (
+          visit_id,
+          fixed_points (
+            point_number
+          )
+        )
+      `)
+      .eq('visit_point_records.visit_id', currentVisitId)
+
+    if (waterError) {
+      setError('No se pudieron cargar los parámetros de agua.')
+      return
+    }
+
+    const p4Water = ((data ?? []) as unknown as {
+      temperatura_c: number | null
+      ph: number | null
+      conductividad: number | null
+      solidos_disueltos: number | null
+      oxigeno_disuelto_mgl: number | null
+      oxigeno_disuelto_pct: number | null
+      visit_point_records: { fixed_points: { point_number: number } | null } | null
+    }[]).find(row => row.visit_point_records?.fixed_points?.point_number === 4)
+
+    if (!p4Water) return
+
+    setDrafts(current => ({
+      ...current,
+      4: {
+        ...(current[4] ?? { photos: [], observations: '' }),
+        water: {
+          temperatura_c: inputValue(p4Water.temperatura_c),
+          ph: inputValue(p4Water.ph),
+          conductividad: inputValue(p4Water.conductividad),
+          solidos_disueltos: inputValue(p4Water.solidos_disueltos),
+          oxigeno_disuelto_mgl: inputValue(p4Water.oxigeno_disuelto_mgl),
+          oxigeno_disuelto_pct: inputValue(p4Water.oxigeno_disuelto_pct),
+        },
+      },
+    }))
+  }, [])
+
+  useEffect(() => {
+    if (visitId) {
+      loadWaterMeasurements(visitId)
+    }
+  }, [loadWaterMeasurements, visitId])
+
   const uploadPhoto = async (pointNumber: number, localId: string, file: File, previewUrl?: string) => {
     try {
       const currentVisitId = visitId
@@ -1216,21 +1282,24 @@ export default function VisitaView({
     if (pointNumber === 4) {
       const draft = drafts[pointNumber]
       const water = draft.water ?? emptyWater
-      const { error: waterError } = await supabase
-        .from('water_measurements')
-        .upsert({
-          visit_point_record_id: recordId,
-          temperatura_c: numericOrNull(water.temperatura_c),
-          ph: numericOrNull(water.ph),
-          conductividad: numericOrNull(water.conductividad),
-          solidos_disueltos: numericOrNull(water.solidos_disueltos),
-          oxigeno_disuelto_mgl: numericOrNull(water.oxigeno_disuelto_mgl),
-          oxigeno_disuelto_pct: numericOrNull(water.oxigeno_disuelto_pct),
-        }, { onConflict: 'visit_point_record_id' })
 
-      if (waterError) {
-        setError('No se pudieron guardar los par\u00E1metros de agua.')
-        throw waterError
+      if (hasWaterInput(water)) {
+        const { error: waterError } = await supabase
+          .from('water_measurements')
+          .upsert({
+            visit_point_record_id: recordId,
+            temperatura_c: numericOrNull(water.temperatura_c),
+            ph: numericOrNull(water.ph),
+            conductividad: numericOrNull(water.conductividad),
+            solidos_disueltos: numericOrNull(water.solidos_disueltos),
+            oxigeno_disuelto_mgl: numericOrNull(water.oxigeno_disuelto_mgl),
+            oxigeno_disuelto_pct: numericOrNull(water.oxigeno_disuelto_pct),
+          }, { onConflict: 'visit_point_record_id' })
+
+        if (waterError) {
+          setError('No se pudieron guardar los par\u00E1metros de agua.')
+          throw waterError
+        }
       }
     }
 
