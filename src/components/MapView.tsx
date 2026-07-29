@@ -4,6 +4,8 @@ import { importLibrary, setOptions } from '@googlemaps/js-api-loader'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 
+const R2_PUBLIC_URL = (import.meta.env.VITE_R2_PUBLIC_URL as string | undefined)?.replace(/\/$/, '') ?? ''
+
 const FIXED_POINTS = [
   { id: 1, label: 'Punto 1', required_photos: 2, coords: { lat: 20.61893648698355, lng: -100.39686279037221 } },
   { id: 2, label: 'Punto 2', required_photos: 1, coords: { lat: 20.62047785614087, lng: -100.39348856712448 } },
@@ -23,6 +25,13 @@ interface PointState {
 interface VisitPointStatusRow {
   point_number: number
   photo_status: 'completo' | 'pendiente'
+}
+
+interface MapPhoto {
+  id: string
+  imageUrl: string
+  fullUrl: string
+  label: string
 }
 
 const STATUS_COLOR: Record<PointStatus, string> = {
@@ -57,6 +66,11 @@ function applyPointColors(
   })
 }
 
+function r2Url(key: string | null | undefined) {
+  if (!R2_PUBLIC_URL || !key) return ''
+  return `${R2_PUBLIC_URL}/${key.replace(/^\/+/, '')}`
+}
+
 export default function MapView({
   session,
   visitDate,
@@ -76,6 +90,8 @@ export default function MapView({
   const [selectedPoint, setSelectedPoint] = useState<number | null>(null)
 
   const [pointStates, setPointStates] = useState<PointState[] | null>(null)
+  const [photosByPoint, setPhotosByPoint] = useState<Record<number, MapPhoto[]>>({})
+  const [photosLoading, setPhotosLoading] = useState(false)
 
   useEffect(() => {
     if (!session.user.id) return
@@ -128,6 +144,86 @@ export default function MapView({
 
   useEffect(() => {
     let isMounted = true
+
+    async function loadPhotosForDate() {
+      setPhotosLoading(true)
+
+      const { data: visit, error: visitError } = await supabase
+        .from('visits')
+        .select('id')
+        .eq('visit_date', visitDate)
+        .maybeSingle()
+
+      if (!isMounted) return
+
+      if (visitError || !visit?.id) {
+        setPhotosByPoint({})
+        setPhotosLoading(false)
+        return
+      }
+
+      const { data, error } = await supabase
+        .from('photos')
+        .select(`
+          id,
+          storage_key,
+          thumbnail_key,
+          captured_at,
+          visit_point_records (
+            fixed_points (
+              point_number,
+              label
+            )
+          )
+        `)
+        .eq('visit_id', visit.id)
+        .not('visit_point_record_id', 'is', null)
+        .order('captured_at', { ascending: true })
+
+      if (!isMounted) return
+
+      if (error) {
+        setPhotosByPoint({})
+        setPhotosLoading(false)
+        return
+      }
+
+      const next: Record<number, MapPhoto[]> = {}
+      ;((data ?? []) as unknown as {
+        id: string
+        storage_key: string
+        thumbnail_key: string | null
+        visit_point_records: {
+          fixed_points: {
+            point_number: number
+            label: string
+          } | null
+        } | null
+      }[]).forEach(photo => {
+        const point = photo.visit_point_records?.fixed_points
+        if (!point?.point_number) return
+        next[point.point_number] ??= []
+        next[point.point_number].push({
+          id: photo.id,
+          imageUrl: r2Url(photo.thumbnail_key || photo.storage_key),
+          fullUrl: r2Url(photo.storage_key),
+          label: point.label,
+        })
+      })
+
+      setPhotosByPoint(next)
+      setPhotosLoading(false)
+    }
+
+    void loadPhotosForDate()
+
+    return () => {
+      isMounted = false
+    }
+  }, [visitDate, refreshKey])
+
+  useEffect(() => {
+    let isMounted = true
     const markerPins = markerPinsRef.current
 
     if (!googleMapsOptionsSet) {
@@ -174,6 +270,7 @@ export default function MapView({
           pointer-events: ${pointStatesRef.current ? 'auto' : 'none'};
         `
         pin.textContent = `P${point.id}`
+        pin.addEventListener('mouseenter', () => setSelectedPoint(point.id))
         markerPins.set(point.id, pin)
 
         const marker = new AdvancedMarkerElement({
@@ -212,6 +309,7 @@ export default function MapView({
 
   const selected = FIXED_POINTS.find(p => p.id === selectedPoint)
   const selectedState = pointStates?.find(s => s.id === selectedPoint)
+  const selectedPhotos = selectedPoint ? photosByPoint[selectedPoint] ?? [] : []
   const today = getMexicoCityDate()
 
   return (
@@ -295,6 +393,60 @@ export default function MapView({
                   : 'Sin registro'}
               </span>
             </div>
+          </div>
+
+          <div style={{ marginTop: 12 }}>
+            {photosLoading ? (
+              <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>Cargando fotos...</div>
+            ) : selectedPhotos.length > 0 ? (
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(72px, 1fr))',
+                gap: 8,
+                maxHeight: 150,
+                overflowY: 'auto',
+              }}>
+                {selectedPhotos.map(photo => (
+                  <a
+                    key={photo.id}
+                    href={photo.fullUrl || photo.imageUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      display: 'block',
+                      aspectRatio: '4 / 3',
+                      background: '#000',
+                      borderRadius: 'var(--radius-sm)',
+                      overflow: 'hidden',
+                      border: '1px solid var(--color-border)',
+                    }}
+                  >
+                    {photo.imageUrl ? (
+                      <img
+                        src={photo.imageUrl}
+                        alt={photo.label}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                      />
+                    ) : (
+                      <span style={{
+                        height: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#fff',
+                        fontSize: 11,
+                      }}>
+                        Sin URL
+                      </span>
+                    )}
+                  </a>
+                ))}
+              </div>
+            ) : (
+              <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
+                Sin fotos cargadas para este punto en la fecha seleccionada
+              </div>
+            )}
           </div>
           <button
             onClick={() => setSelectedPoint(null)}

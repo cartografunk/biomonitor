@@ -32,6 +32,10 @@ interface GalleryPhoto {
   imageUrl: string
   fullUrl: string
   kind: 'fixed_point' | 'extra_event'
+  siteKey: string
+  siteLabel: string
+  capturedAt: string
+  pointNumber: number | null
 }
 
 function getMexicoCityDate() {
@@ -62,13 +66,36 @@ export default function PhotosView() {
   const [visits, setVisits] = useState<VisitOption[]>([])
   const [photos, setPhotos] = useState<GalleryPhoto[]>([])
   const [selectedPhotoId, setSelectedPhotoId] = useState<string | null>(null)
+  const [selectedSite, setSelectedSite] = useState('all')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const selectedPhoto = useMemo(
-    () => photos.find(photo => photo.id === selectedPhotoId) ?? photos[0],
-    [photos, selectedPhotoId]
+  const siteOptions = useMemo(() => {
+    const options = new Map<string, string>()
+    photos.forEach(photo => options.set(photo.siteKey, photo.siteLabel))
+    return Array.from(options.entries())
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'es-MX', { numeric: true }))
+  }, [photos])
+
+  const filteredPhotos = useMemo(
+    () => photos.filter(photo => selectedSite === 'all' || photo.siteKey === selectedSite),
+    [photos, selectedSite]
   )
+
+  const selectedPhoto = useMemo(
+    () => filteredPhotos.find(photo => photo.id === selectedPhotoId) ?? filteredPhotos[filteredPhotos.length - 1],
+    [filteredPhotos, selectedPhotoId]
+  )
+  const selectedPhotoIndex = selectedPhoto
+    ? filteredPhotos.findIndex(photo => photo.id === selectedPhoto.id)
+    : -1
+
+  const handleSiteChange = (nextSite: string) => {
+    const nextPhotos = photos.filter(photo => nextSite === 'all' || photo.siteKey === nextSite)
+    setSelectedSite(nextSite)
+    setSelectedPhotoId(nextPhotos[nextPhotos.length - 1]?.id ?? null)
+  }
 
   const currentVisitIndex = visits.findIndex(visit => visit.visit_date === visitDate)
   const canGoPrevious = currentVisitIndex >= 0 && currentVisitIndex < visits.length - 1
@@ -119,7 +146,7 @@ export default function PhotosView() {
         .from('visits')
         .select('id')
         .eq('visit_date', visitDate)
-        .single()
+        .maybeSingle()
 
       if (!isMounted) return
 
@@ -159,37 +186,40 @@ export default function PhotosView() {
         return
       }
 
-      const gallery: GalleryPhoto[] = ((data ?? []) as unknown as PhotoRow[]).map(photo => {
-        const fixedPoint = photo.visit_point_records?.fixed_points
-        const event = photo.extra_events
-        const imageUrl = r2Url(photo.thumbnail_key || photo.storage_key)
-        const fullUrl = r2Url(photo.storage_key)
+      const gallery: GalleryPhoto[] = ((data ?? []) as unknown as PhotoRow[])
+        .map(photo => {
+          const fixedPoint = photo.visit_point_records?.fixed_points
+          const event = photo.extra_events
+          const imageUrl = r2Url(photo.thumbnail_key || photo.storage_key)
+          const fullUrl = r2Url(photo.storage_key)
+          const siteKey = fixedPoint ? `point-${fixedPoint.point_number}` : 'extra-event'
+          const siteLabel = fixedPoint ? `Punto ${fixedPoint.point_number}` : 'Eventos'
+          const kind: GalleryPhoto['kind'] = fixedPoint ? 'fixed_point' : 'extra_event'
 
-        console.info('[PhotosView] resolved photo URL', {
-          id: photo.id,
-          thumbnail_key: photo.thumbnail_key,
-          storage_key: photo.storage_key,
-          imageUrl,
-          fullUrl,
+          return {
+            id: photo.id,
+            title: fixedPoint ? `P${fixedPoint.point_number} \u00B7 ${fixedPoint.label}` : 'Evento extraordinario',
+            subtitle: event
+              ? `${event.observations ?? 'Sin observaciones'} \u00B7 importancia ${event.importance}`
+              : new Intl.DateTimeFormat('es-MX', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  timeZone: 'America/Mexico_City',
+                }).format(new Date(photo.captured_at)),
+            imageUrl,
+            fullUrl,
+            kind,
+            siteKey,
+            siteLabel,
+            capturedAt: photo.captured_at,
+            pointNumber: fixedPoint?.point_number ?? null,
+          }
         })
-
-        return {
-          id: photo.id,
-          title: fixedPoint ? `P${fixedPoint.point_number} \u00B7 ${fixedPoint.label}` : 'Evento extraordinario',
-          subtitle: event
-            ? `${event.observations ?? 'Sin observaciones'} \u00B7 importancia ${event.importance}`
-            : new Intl.DateTimeFormat('es-MX', {
-                hour: '2-digit',
-                minute: '2-digit',
-                timeZone: 'America/Mexico_City',
-              }).format(new Date(photo.captured_at)),
-          imageUrl,
-          fullUrl,
-          kind: fixedPoint ? 'fixed_point' : 'extra_event',
-        }
-      })
+        .sort((a, b) => a.capturedAt.localeCompare(b.capturedAt))
 
       setPhotos(gallery)
+      setSelectedSite('all')
+      setSelectedPhotoId(gallery[gallery.length - 1]?.id ?? null)
       setLoading(false)
     }
 
@@ -302,6 +332,29 @@ export default function PhotosView() {
             })}
           </div>
         )}
+
+        {siteOptions.length > 0 && (
+          <select
+            value={selectedSite}
+            onChange={event => handleSiteChange(event.target.value)}
+            style={{
+              width: '100%',
+              border: '1.5px solid var(--color-border)',
+              borderRadius: 'var(--radius-md)',
+              background: 'var(--color-bg)',
+              padding: '9px 12px',
+              fontSize: 14,
+              fontWeight: 600,
+              fontFamily: 'var(--font-sans)',
+              color: 'var(--color-text-primary)',
+            }}
+          >
+            <option value="all">Todos los sitios</option>
+            {siteOptions.map(option => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 16px 32px' }}>
@@ -317,13 +370,13 @@ export default function PhotosView() {
           </div>
         )}
 
-        {!loading && !error && photos.length === 0 && (
+        {!loading && !error && filteredPhotos.length === 0 && (
           <div style={{ fontSize: 13, color: 'var(--color-text-muted)', textAlign: 'center', marginTop: 32 }}>
             Sin fotos registradas en esta fecha
           </div>
         )}
 
-        {!loading && !error && photos.length > 0 && !R2_PUBLIC_URL && (
+        {!loading && !error && filteredPhotos.length > 0 && !R2_PUBLIC_URL && (
           <div style={{
             fontSize: 13,
             color: 'var(--color-warning)',
@@ -392,52 +445,115 @@ export default function PhotosView() {
             </div>
 
             <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(88px, 1fr))',
-              gap: 8,
+              background: 'var(--color-surface)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-md)',
+              padding: 12,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
             }}>
-              {photos.map(photo => (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
                 <button
-                  key={photo.id}
-                  onClick={() => setSelectedPhotoId(photo.id)}
-                  style={{
-                    position: 'relative',
-                    padding: 0,
-                    border: photo.id === selectedPhoto.id
-                      ? '2px solid var(--color-accent)'
-                      : '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-sm)',
-                    overflow: 'hidden',
-                    background: 'var(--color-surface)',
-                    cursor: 'pointer',
-                    aspectRatio: '4 / 3',
+                  onClick={() => {
+                    const previous = Math.max(0, selectedPhotoIndex - 1)
+                    setSelectedPhotoId(filteredPhotos[previous]?.id ?? null)
                   }}
-                  title={photo.title}
+                  disabled={selectedPhotoIndex <= 0}
+                  style={{
+                    width: 36,
+                    height: 36,
+                    border: '1.5px solid var(--color-border)',
+                    borderRadius: '50%',
+                    background: 'var(--color-surface)',
+                    color: 'var(--color-text-primary)',
+                    opacity: selectedPhotoIndex <= 0 ? 0.45 : 1,
+                    cursor: selectedPhotoIndex <= 0 ? 'not-allowed' : 'pointer',
+                    fontSize: 18,
+                  }}
                 >
-                  {(photo.imageUrl || photo.fullUrl) && (
-                    <img
-                      src={photo.imageUrl || photo.fullUrl}
-                      alt={photo.title}
-                      style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
-                    />
-                  )}
-                  {photo.kind === 'extra_event' && (
-                    <span style={{
-                      position: 'absolute',
-                      left: 4,
-                      bottom: 4,
-                      background: 'rgba(232,93,4,0.92)',
-                      color: '#fff',
-                      borderRadius: 4,
-                      padding: '2px 4px',
-                      fontSize: 9,
-                      fontWeight: 700,
-                    }}>
-                      Evento
-                    </span>
-                  )}
+                  ‹
                 </button>
-              ))}
+                <div style={{ flex: 1 }}>
+                  <input
+                    type="range"
+                    min={0}
+                    max={Math.max(0, filteredPhotos.length - 1)}
+                    value={Math.max(0, selectedPhotoIndex)}
+                    onChange={event => setSelectedPhotoId(filteredPhotos[Number(event.target.value)]?.id ?? null)}
+                    style={{ width: '100%' }}
+                  />
+                  <div style={{ fontSize: 11, color: 'var(--color-text-muted)', textAlign: 'center', marginTop: 2 }}>
+                    {selectedPhotoIndex + 1} de {filteredPhotos.length}
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    const next = Math.min(filteredPhotos.length - 1, selectedPhotoIndex + 1)
+                    setSelectedPhotoId(filteredPhotos[next]?.id ?? null)
+                  }}
+                  disabled={selectedPhotoIndex >= filteredPhotos.length - 1}
+                  style={{
+                    width: 36,
+                    height: 36,
+                    border: '1.5px solid var(--color-border)',
+                    borderRadius: '50%',
+                    background: 'var(--color-surface)',
+                    color: 'var(--color-text-primary)',
+                    opacity: selectedPhotoIndex >= filteredPhotos.length - 1 ? 0.45 : 1,
+                    cursor: selectedPhotoIndex >= filteredPhotos.length - 1 ? 'not-allowed' : 'pointer',
+                    fontSize: 18,
+                  }}
+                >
+                  ›
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>
+                {filteredPhotos.map(photo => (
+                  <button
+                    key={photo.id}
+                    onClick={() => setSelectedPhotoId(photo.id)}
+                    style={{
+                      position: 'relative',
+                      flex: '0 0 72px',
+                      padding: 0,
+                      border: photo.id === selectedPhoto.id
+                        ? '2px solid var(--color-accent)'
+                        : '1px solid var(--color-border)',
+                      borderRadius: 'var(--radius-sm)',
+                      overflow: 'hidden',
+                      background: '#000',
+                      cursor: 'pointer',
+                      aspectRatio: '4 / 3',
+                    }}
+                    title={photo.title}
+                  >
+                    {(photo.imageUrl || photo.fullUrl) && (
+                      <img
+                        src={photo.imageUrl || photo.fullUrl}
+                        alt={photo.title}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                      />
+                    )}
+                    {photo.kind === 'extra_event' && (
+                      <span style={{
+                        position: 'absolute',
+                        left: 4,
+                        bottom: 4,
+                        background: 'rgba(232,93,4,0.92)',
+                        color: '#fff',
+                        borderRadius: 4,
+                        padding: '2px 4px',
+                        fontSize: 9,
+                        fontWeight: 700,
+                      }}>
+                        Evento
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         )}

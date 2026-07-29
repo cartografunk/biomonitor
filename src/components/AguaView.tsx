@@ -46,6 +46,8 @@ interface ParamConfig {
   domain?: [number | 'auto', number | 'auto']
 }
 
+type DateRange = '7' | '15' | '30' | '90' | '180' | 'all'
+
 const PARAMS: ParamConfig[] = [
   { key: 'temperatura_c',        label: 'Temperatura',               unit: '°C',   color: '#E85D04', domain: [10, 35] },
   { key: 'ph',                   label: 'pH',                        unit: '',     color: '#6A4C93', domain: [6, 9] },
@@ -53,6 +55,15 @@ const PARAMS: ParamConfig[] = [
   { key: 'solidos_disueltos',    label: 'Sólidos totales disueltos', unit: 'ppt',  color: '#8AC926', domain: ['auto', 'auto'] },
   { key: 'oxigeno_disuelto_mgl', label: 'Oxígeno disuelto',          unit: 'mg/L', color: '#38B000', domain: [0, 12] },
   { key: 'oxigeno_disuelto_pct', label: 'Oxígeno disuelto',          unit: 'OD%',  color: '#FF595E', domain: [0, 100] },
+]
+
+const DATE_RANGES: { value: DateRange; label: string }[] = [
+  { value: '7', label: 'Últimos 7 días' },
+  { value: '15', label: 'Últimos 15 días' },
+  { value: '30', label: 'Último mes' },
+  { value: '90', label: 'Últimos 90 días' },
+  { value: '180', label: 'Últimos 6 meses' },
+  { value: 'all', label: 'Todos los días' },
 ]
 
 function formatShortDate(date: string) {
@@ -78,8 +89,9 @@ function formatMetric(value: number | null | undefined) {
 }
 
 function ParamCard({ param, data }: { param: ParamConfig; data: WaterChartRow[] }) {
-  const latest = [...data].reverse().find(row => row[param.key] !== null)?.[param.key]
-  const values = data
+  const paramData = data.filter(row => typeof row[param.key] === 'number' && Number.isFinite(row[param.key]))
+  const latest = paramData[paramData.length - 1]?.[param.key]
+  const values = paramData
     .map(row => row[param.key])
     .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
   const average = values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : null
@@ -132,7 +144,7 @@ function ParamCard({ param, data }: { param: ParamConfig; data: WaterChartRow[] 
       </div>
 
       <ResponsiveContainer width="100%" height={120}>
-        <LineChart data={data} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+        <LineChart data={paramData} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
           <XAxis
             dataKey="fecha"
@@ -166,7 +178,6 @@ function ParamCard({ param, data }: { param: ParamConfig; data: WaterChartRow[] 
             strokeWidth={2}
             dot={{ r: 4, fill: param.color, stroke: '#fff', strokeWidth: 2 }}
             activeDot={{ r: 6, fill: param.color, stroke: '#fff', strokeWidth: 2 }}
-            connectNulls
           />
         </LineChart>
       </ResponsiveContainer>
@@ -176,6 +187,7 @@ function ParamCard({ param, data }: { param: ParamConfig; data: WaterChartRow[] 
 
 export default function AguaView() {
   const [data, setData] = useState<WaterChartRow[]>([])
+  const [dateRange, setDateRange] = useState<DateRange>('30')
   const [loading, setLoading] = useState(true)
   const [downloading, setDownloading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -228,7 +240,6 @@ export default function AguaView() {
         })
         .filter((row): row is WaterChartRow => row !== null)
         .sort((a, b) => a.visit_date.localeCompare(b.visit_date))
-        .slice(-10)
 
       setData(chartRows)
       setLoading(false)
@@ -241,8 +252,25 @@ export default function AguaView() {
     }
   }, [])
 
+  const filteredData = data.filter(row => {
+    if (dateRange === 'all') return true
+
+    const latestDate = data[data.length - 1]?.visit_date
+    if (!latestDate) return false
+
+    const latestTime = new Date(`${latestDate}T12:00:00`).getTime()
+    const rowTime = new Date(`${row.visit_date}T12:00:00`).getTime()
+    const rangeDays = Number(dateRange)
+    const startTime = latestTime - (rangeDays - 1) * 24 * 60 * 60 * 1000
+    return rowTime >= startTime && rowTime <= latestTime
+  })
+
+  const visibleParams = PARAMS.filter(param =>
+    filteredData.some(row => typeof row[param.key] === 'number' && Number.isFinite(row[param.key]))
+  )
+
   const handleDownloadExcel = async () => {
-    if (data.length === 0) return
+    if (filteredData.length === 0) return
 
     setDownloading(true)
     const headers = [
@@ -254,7 +282,7 @@ export default function AguaView() {
       'Oxígeno disuelto (mg/L)',
       'Oxígeno disuelto (OD%)',
     ]
-    const bodyRows = data.map(row => [
+    const bodyRows = filteredData.map(row => [
       row.visit_date,
       row.temperatura_c,
       row.ph,
@@ -298,32 +326,53 @@ export default function AguaView() {
         justifyContent: 'space-between',
         gap: 12,
       }}>
-        <div>
-        <div style={{ fontWeight: 600, fontSize: 15 }}>Calidad del agua</div>
-        <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 2 }}>
-          Punto 4 — Cono Imhoff {'\u00B7'} histórico
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontWeight: 600, fontSize: 15 }}>Calidad del agua</div>
+          <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 2 }}>
+            Punto 4 — Cono Imhoff {'\u00B7'} histórico
+          </div>
         </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+          <select
+            value={dateRange}
+            onChange={event => setDateRange(event.target.value as DateRange)}
+            style={{
+              border: '1.5px solid var(--color-border)',
+              borderRadius: 'var(--radius-md)',
+              background: 'var(--color-surface)',
+              color: 'var(--color-text-primary)',
+              padding: '8px 28px 8px 10px',
+              fontSize: 13,
+              fontWeight: 600,
+              fontFamily: 'var(--font-sans)',
+              maxWidth: 156,
+            }}
+          >
+            {DATE_RANGES.map(range => (
+              <option key={range.value} value={range.value}>{range.label}</option>
+            ))}
+          </select>
+          <button
+            onClick={handleDownloadExcel}
+            disabled={loading || downloading || filteredData.length === 0}
+            title="Descargar Excel"
+            style={{
+              flexShrink: 0,
+              border: '1.5px solid var(--color-border)',
+              borderRadius: 'var(--radius-md)',
+              background: filteredData.length === 0 ? 'var(--color-bg)' : 'var(--color-surface)',
+              color: filteredData.length === 0 ? 'var(--color-text-muted)' : 'var(--color-text-primary)',
+              padding: '8px 10px',
+              fontSize: 13,
+              fontWeight: 600,
+              fontFamily: 'var(--font-sans)',
+              cursor: loading || downloading || filteredData.length === 0 ? 'not-allowed' : 'pointer',
+              opacity: loading || downloading || filteredData.length === 0 ? 0.6 : 1,
+            }}
+          >
+            {downloading ? '...' : 'Excel'}
+          </button>
         </div>
-        <button
-          onClick={handleDownloadExcel}
-          disabled={loading || downloading || data.length === 0}
-          title="Descargar Excel"
-          style={{
-            flexShrink: 0,
-            border: '1.5px solid var(--color-border)',
-            borderRadius: 'var(--radius-md)',
-            background: data.length === 0 ? 'var(--color-bg)' : 'var(--color-surface)',
-            color: data.length === 0 ? 'var(--color-text-muted)' : 'var(--color-text-primary)',
-            padding: '8px 10px',
-            fontSize: 13,
-            fontWeight: 600,
-            fontFamily: 'var(--font-sans)',
-            cursor: loading || downloading || data.length === 0 ? 'not-allowed' : 'pointer',
-            opacity: loading || downloading || data.length === 0 ? 0.6 : 1,
-          }}
-        >
-          {downloading ? '...' : 'Excel'}
-        </button>
       </div>
 
       <div style={{
@@ -341,13 +390,13 @@ export default function AguaView() {
             {error}
           </div>
         )}
-        {!loading && !error && data.length === 0 && (
+        {!loading && !error && visibleParams.length === 0 && (
           <div style={{ fontSize: 13, color: 'var(--color-text-muted)', textAlign: 'center', marginTop: 32 }}>
-            Sin mediciones registradas aún
+            Sin mediciones registradas en este rango
           </div>
         )}
-        {!loading && !error && data.length > 0 && PARAMS.map(p => (
-          <ParamCard key={p.key} param={p} data={data} />
+        {!loading && !error && visibleParams.map(p => (
+          <ParamCard key={p.key} param={p} data={filteredData} />
         ))}
       </div>
     </div>
