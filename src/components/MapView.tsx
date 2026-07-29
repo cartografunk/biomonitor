@@ -5,8 +5,17 @@ import type { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 
 const R2_PUBLIC_URL = (import.meta.env.VITE_R2_PUBLIC_URL as string | undefined)?.replace(/\/$/, '') ?? ''
+const WATER_INTAKE_POINT_ID = 101
 
 const FIXED_POINTS = [
+  {
+    id: WATER_INTAKE_POINT_ID,
+    label: 'Agua de ingreso',
+    markerLabel: 'I',
+    required_photos: 0,
+    coords: { lat: 20.62259101441265, lng: -100.39713883000806 },
+    kind: 'water_intake',
+  },
   { id: 1, label: 'Punto 1', required_photos: 2, coords: { lat: 20.61893648698355, lng: -100.39686279037221 } },
   { id: 2, label: 'Punto 2', required_photos: 1, coords: { lat: 20.62047785614087, lng: -100.39348856712448 } },
   { id: 3, label: 'Punto 3', required_photos: 1, coords: { lat: 20.620813731591337, lng: -100.40010022232315 } },
@@ -32,6 +41,17 @@ interface MapPhoto {
   imageUrl: string
   fullUrl: string
   label: string
+}
+
+interface LatestWaterMeasurement {
+  visitDate: string | null
+  measuredAt: string | null
+  temperatura_c: number | null
+  ph: number | null
+  conductividad: number | null
+  solidos_disueltos: number | null
+  oxigeno_disuelto_mgl: number | null
+  oxigeno_disuelto_pct: number | null
 }
 
 const STATUS_COLOR: Record<PointStatus, string> = {
@@ -61,7 +81,7 @@ function applyPointColors(
   states?.forEach(state => {
     const pin = pins.get(state.id)
     if (pin) {
-      pin.style.background = STATUS_COLOR[state.status]
+      pin.style.background = state.id === WATER_INTAKE_POINT_ID ? '#1982C4' : STATUS_COLOR[state.status]
     }
   })
 }
@@ -69,6 +89,22 @@ function applyPointColors(
 function r2Url(key: string | null | undefined) {
   if (!R2_PUBLIC_URL || !key) return ''
   return `${R2_PUBLIC_URL}/${key.replace(/^\/+/, '')}`
+}
+
+function formatWaterValue(value: number | null, unit = '') {
+  if (value === null) return '—'
+  const formatted = Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, '')
+  return unit ? `${formatted} ${unit}` : formatted
+}
+
+function formatDisplayDate(date: string | null) {
+  if (!date) return 'Fecha no disponible'
+  return new Intl.DateTimeFormat('es-MX', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'America/Mexico_City',
+  }).format(new Date(`${date}T12:00:00`)).replace('.', '')
 }
 
 export default function MapView({
@@ -93,6 +129,7 @@ export default function MapView({
   const [pointStates, setPointStates] = useState<PointState[] | null>(null)
   const [photosByPoint, setPhotosByPoint] = useState<Record<number, MapPhoto[]>>({})
   const [photosLoading, setPhotosLoading] = useState(false)
+  const [latestWater, setLatestWater] = useState<LatestWaterMeasurement | null>(null)
 
   useEffect(() => {
     if (!session.user.id) return
@@ -225,6 +262,76 @@ export default function MapView({
 
   useEffect(() => {
     let isMounted = true
+
+    async function loadLatestWaterMeasurement() {
+      const { data, error } = await supabase
+        .from('water_measurements')
+        .select(`
+          temperatura_c,
+          ph,
+          conductividad,
+          solidos_disueltos,
+          oxigeno_disuelto_mgl,
+          oxigeno_disuelto_pct,
+          measured_at,
+          visit_point_records (
+            visits (
+              visit_date
+            )
+          )
+        `)
+
+      if (!isMounted) return
+
+      if (error) {
+        setLatestWater(null)
+        return
+      }
+
+      const rows = (data ?? []) as unknown as {
+        temperatura_c: number | null
+        ph: number | null
+        conductividad: number | null
+        solidos_disueltos: number | null
+        oxigeno_disuelto_mgl: number | null
+        oxigeno_disuelto_pct: number | null
+        measured_at: string | null
+        visit_point_records: { visits: { visit_date: string } | null } | null
+      }[]
+      const row = rows
+        .sort((a, b) => {
+          const dateCompare = (b.visit_point_records?.visits?.visit_date ?? '')
+            .localeCompare(a.visit_point_records?.visits?.visit_date ?? '')
+          if (dateCompare !== 0) return dateCompare
+          return (b.measured_at ?? '').localeCompare(a.measured_at ?? '')
+        })[0]
+
+      if (!row) {
+        setLatestWater(null)
+        return
+      }
+
+      setLatestWater({
+        visitDate: row.visit_point_records?.visits?.visit_date ?? null,
+        measuredAt: row.measured_at,
+        temperatura_c: row.temperatura_c,
+        ph: row.ph,
+        conductividad: row.conductividad,
+        solidos_disueltos: row.solidos_disueltos,
+        oxigeno_disuelto_mgl: row.oxigeno_disuelto_mgl,
+        oxigeno_disuelto_pct: row.oxigeno_disuelto_pct,
+      })
+    }
+
+    void loadLatestWaterMeasurement()
+
+    return () => {
+      isMounted = false
+    }
+  }, [refreshKey])
+
+  useEffect(() => {
+    let isMounted = true
     const markerPins = markerPinsRef.current
 
     if (!googleMapsOptionsSet) {
@@ -270,7 +377,7 @@ export default function MapView({
           opacity: ${pointStatesRef.current ? 1 : 0};
           pointer-events: ${pointStatesRef.current ? 'auto' : 'none'};
         `
-        pin.textContent = `P${point.id}`
+        pin.textContent = point.markerLabel ?? `P${point.id}`
         pin.addEventListener('mouseenter', () => setHoveredPoint(point.id))
         pin.addEventListener('mouseleave', () => setHoveredPoint(null))
         markerPins.set(point.id, pin)
@@ -311,6 +418,7 @@ export default function MapView({
 
   const selectedPoint = hoveredPoint ?? pinnedPoint
   const selected = FIXED_POINTS.find(p => p.id === selectedPoint)
+  const selectedIsWaterIntake = selected?.id === WATER_INTAKE_POINT_ID
   const selectedState = pointStates?.find(s => s.id === selectedPoint)
   const selectedPhotos = selectedPoint ? photosByPoint[selectedPoint] ?? [] : []
   const today = getMexicoCityDate()
@@ -379,9 +487,25 @@ export default function MapView({
             <div>
               <div style={{ fontWeight: 500, fontSize: 15 }}>{selected.label}</div>
               <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 2 }}>
-                {selected.required_photos} foto{selected.required_photos > 1 ? 's' : ''} requerida{selected.required_photos > 1 ? 's' : ''}
+                {selectedIsWaterIntake
+                  ? `Última medición: ${formatDisplayDate(latestWater?.visitDate ?? null)}`
+                  : `${selected.required_photos} foto${selected.required_photos > 1 ? 's' : ''} requerida${selected.required_photos > 1 ? 's' : ''}`}
               </div>
             </div>
+            {selectedIsWaterIntake ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{
+                  width: 8, height: 8, borderRadius: '50%',
+                  background: '#1982C4',
+                }} />
+                <span style={{
+                  fontSize: 12, fontWeight: 500,
+                  color: '#1982C4',
+                }}>
+                  Ingreso
+                </span>
+              </div>
+            ) : (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <div style={{
                 width: 8, height: 8, borderRadius: '50%',
@@ -396,10 +520,49 @@ export default function MapView({
                   : 'Sin registro'}
               </span>
             </div>
+            )}
           </div>
 
           <div style={{ marginTop: 12 }}>
-            {photosLoading ? (
+            {selectedIsWaterIntake ? (
+              latestWater ? (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                  gap: 8,
+                }}>
+                  {[
+                    ['Temp.', formatWaterValue(latestWater.temperatura_c, '°C')],
+                    ['pH', formatWaterValue(latestWater.ph)],
+                    ['Conduct.', formatWaterValue(latestWater.conductividad, 'mS')],
+                    ['SDT', formatWaterValue(latestWater.solidos_disueltos, 'ppt')],
+                    ['OD mg/L', formatWaterValue(latestWater.oxigeno_disuelto_mgl, 'mg/L')],
+                    ['OD %', formatWaterValue(latestWater.oxigeno_disuelto_pct, '%')],
+                  ].map(([label, value]) => (
+                    <div
+                      key={label}
+                      style={{
+                        background: 'var(--color-bg)',
+                        border: '1px solid var(--color-border)',
+                        borderRadius: 'var(--radius-sm)',
+                        padding: '8px 10px',
+                      }}
+                    >
+                      <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginBottom: 2 }}>
+                        {label}
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
+                        {value}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
+                  Sin mediciones físico-químicas registradas
+                </div>
+              )
+            ) : photosLoading ? (
               <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>Cargando fotos...</div>
             ) : selectedPhotos.length > 0 ? (
               <div style={{
