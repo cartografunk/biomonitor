@@ -1,7 +1,13 @@
+import type { MouseEvent } from 'react'
 import { STUDY_AREAS } from '../studyAreas'
 
-export default function HomeView() {
+export default function HomeView({ onNavigate }: { onNavigate?: (path: string) => void }) {
   const firstStudyArea = STUDY_AREAS[0]
+  const handleNavigate = (event: MouseEvent<HTMLAnchorElement>, path: string) => {
+    if (!onNavigate) return
+    event.preventDefault()
+    onNavigate(path)
+  }
 
   return (
     <div style={{
@@ -30,6 +36,7 @@ export default function HomeView() {
         {firstStudyArea && (
           <a
             href={firstStudyArea.path}
+            onClick={event => handleNavigate(event, firstStudyArea.path)}
             style={{
               border: '1.5px solid var(--color-border)',
               borderRadius: 'var(--radius-md)',
@@ -83,6 +90,7 @@ export default function HomeView() {
             <a
               key={area.slug}
               href={area.path}
+              onClick={event => handleNavigate(event, area.path)}
               style={{
                 display: 'grid',
                 gridTemplateColumns: '1fr auto',

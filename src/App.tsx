@@ -46,8 +46,13 @@ export default function App() {
     return () => window.removeEventListener('popstate', handlePopState)
   }, [])
 
+  const navigateToPath = (path: string) => {
+    history.pushState(null, document.title, path)
+    setPathname(path)
+  }
+
   if (!studyArea && !isPasswordCallback) {
-    return <HomeView />
+    return <HomeView onNavigate={navigateToPath} />
   }
 
   return <StudyAreaApp studyArea={studyArea ?? studyAreaFromPath('/bbj')!} />
