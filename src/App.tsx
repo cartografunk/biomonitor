@@ -10,6 +10,8 @@ import ReportesView from './components/ReportesView'
 import LoginView from './components/LoginView'
 import SetPasswordView from './components/SetPasswordView'
 import HomeView from './components/HomeView'
+import { studyAreaFromPath } from './studyAreas'
+import type { StudyArea } from './studyAreas'
 
 type Tab = 'mapa' | 'visita' | 'agua' | 'fotos' | 'reportes'
 type PasswordFlow = 'invite' | 'recovery' | null
@@ -36,6 +38,7 @@ export default function App() {
   const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''))
   const authHashType = hash.get('type')
   const isPasswordCallback = authHashType === 'invite' || authHashType === 'recovery'
+  const studyArea = studyAreaFromPath(pathname)
 
   useEffect(() => {
     const handlePopState = () => setPathname(window.location.pathname)
@@ -43,14 +46,14 @@ export default function App() {
     return () => window.removeEventListener('popstate', handlePopState)
   }, [])
 
-  if (!pathname.startsWith('/bbj') && !isPasswordCallback) {
+  if (!studyArea && !isPasswordCallback) {
     return <HomeView />
   }
 
-  return <BBJApp />
+  return <StudyAreaApp studyArea={studyArea ?? studyAreaFromPath('/bbj')!} />
 }
 
-function BBJApp() {
+function StudyAreaApp({ studyArea }: { studyArea: StudyArea }) {
   const [tab, setTab] = useState<Tab>('mapa')
   const [session, setSession] = useState<Session | null>(null)
   const [role, setRole] = useState<UserRole | null>(null)
@@ -205,7 +208,7 @@ function BBJApp() {
             biomonitor
           </div>
           <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 1 }}>
-            Bordo Benito Juárez
+            {studyArea.name}
           </div>
         </div>
         <button

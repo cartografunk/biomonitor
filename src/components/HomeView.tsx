@@ -1,4 +1,8 @@
+import { STUDY_AREAS } from '../studyAreas'
+
 export default function HomeView() {
+  const firstStudyArea = STUDY_AREAS[0]
+
   return (
     <div style={{
       minHeight: '100dvh',
@@ -23,20 +27,22 @@ export default function HomeView() {
             monitoreo ambiental en campo
           </div>
         </div>
-        <a
-          href="/bbj"
-          style={{
-            border: '1.5px solid var(--color-border)',
-            borderRadius: 'var(--radius-md)',
-            background: 'var(--color-surface)',
-            color: 'var(--color-text-primary)',
-            padding: '9px 12px',
-            fontSize: 13,
-            fontWeight: 700,
-          }}
-        >
-          Entrar
-        </a>
+        {firstStudyArea && (
+          <a
+            href={firstStudyArea.path}
+            style={{
+              border: '1.5px solid var(--color-border)',
+              borderRadius: 'var(--radius-md)',
+              background: 'var(--color-surface)',
+              color: 'var(--color-text-primary)',
+              padding: '9px 12px',
+              fontSize: 13,
+              fontWeight: 700,
+            }}
+          >
+            Entrar
+          </a>
+        )}
       </header>
 
       <main style={{
@@ -73,44 +79,47 @@ export default function HomeView() {
           <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text-muted)' }}>
             Proyectos
           </div>
-          <a
-            href="/bbj"
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr auto',
-              gap: 14,
-              alignItems: 'center',
-              background: 'var(--color-surface)',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-md)',
-              padding: '16px',
-              boxShadow: 'var(--shadow-sm)',
-              color: 'var(--color-text-primary)',
-            }}
-          >
-            <span>
-              <span style={{ display: 'block', fontSize: 16, fontWeight: 700 }}>
-                Bordo Benito Juárez
+          {STUDY_AREAS.map(area => (
+            <a
+              key={area.slug}
+              href={area.path}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr auto',
+                gap: 14,
+                alignItems: 'center',
+                background: 'var(--color-surface)',
+                border: '1px solid var(--color-border)',
+                borderRadius: 'var(--radius-md)',
+                padding: '16px',
+                boxShadow: 'var(--shadow-sm)',
+                color: 'var(--color-text-primary)',
+              }}
+            >
+              <span>
+                <span style={{ display: 'block', fontSize: 16, fontWeight: 700 }}>
+                  {area.name}
+                </span>
+                <span style={{ display: 'block', fontSize: 13, color: 'var(--color-text-muted)', marginTop: 2 }}>
+                  {area.description}
+                </span>
               </span>
-              <span style={{ display: 'block', fontSize: 13, color: 'var(--color-text-muted)', marginTop: 2 }}>
-                Mapa, visitas, agua, fotos y reportes
+              <span style={{
+                width: 34,
+                height: 34,
+                borderRadius: '50%',
+                background: 'var(--color-accent-light)',
+                color: 'var(--color-accent)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 20,
+                fontWeight: 500,
+              }}>
+                ›
               </span>
-            </span>
-            <span style={{
-              width: 34,
-              height: 34,
-              borderRadius: '50%',
-              background: 'var(--color-accent-light)',
-              color: 'var(--color-accent)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 20,
-              fontWeight: 500,
-            }}>
-              ›
-            </span>
-          </a>
+            </a>
+          ))}
         </section>
       </main>
     </div>
