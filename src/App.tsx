@@ -9,6 +9,7 @@ import PhotosView from './components/PhotosView'
 import ReportesView from './components/ReportesView'
 import LoginView from './components/LoginView'
 import SetPasswordView from './components/SetPasswordView'
+import HomeView from './components/HomeView'
 
 type Tab = 'mapa' | 'visita' | 'agua' | 'fotos' | 'reportes'
 type PasswordFlow = 'invite' | 'recovery' | null
@@ -31,6 +32,25 @@ function getMexicoCityDate() {
 }
 
 export default function App() {
+  const [pathname, setPathname] = useState(window.location.pathname)
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''))
+  const authHashType = hash.get('type')
+  const isPasswordCallback = authHashType === 'invite' || authHashType === 'recovery'
+
+  useEffect(() => {
+    const handlePopState = () => setPathname(window.location.pathname)
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
+  if (!pathname.startsWith('/bbj') && !isPasswordCallback) {
+    return <HomeView />
+  }
+
+  return <BBJApp />
+}
+
+function BBJApp() {
   const [tab, setTab] = useState<Tab>('mapa')
   const [session, setSession] = useState<Session | null>(null)
   const [role, setRole] = useState<UserRole | null>(null)
