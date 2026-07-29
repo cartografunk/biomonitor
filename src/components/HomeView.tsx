@@ -71,7 +71,7 @@ export default function HomeView({ onNavigate }: { onNavigate?: (path: string) =
             fontWeight: 700,
             maxWidth: 680,
           }}>
-            Sistema Digital de Monitoreo
+            Plataforma de Monitoreo Ambiental
           </h1>
           <p style={{
             fontSize: 16,
