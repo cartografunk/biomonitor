@@ -144,7 +144,7 @@ function ParamCard({ param, data }: { param: ParamConfig; data: WaterChartRow[] 
       </div>
 
       <ResponsiveContainer width="100%" height={120}>
-        <LineChart data={paramData} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+        <LineChart data={paramData} margin={{ top: 4, right: 12, left: 4, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
           <XAxis
             dataKey="fecha"
@@ -157,7 +157,7 @@ function ParamCard({ param, data }: { param: ParamConfig; data: WaterChartRow[] 
             tick={{ fontSize: 10, fill: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}
             axisLine={false}
             tickLine={false}
-            width={40}
+            width={48}
           />
           <Tooltip
             contentStyle={{
