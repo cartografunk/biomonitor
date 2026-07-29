@@ -64,7 +64,7 @@ export default function HomeView() {
             fontWeight: 700,
             maxWidth: 680,
           }}>
-            Registro, visualización y reporte de monitoreo ambiental.
+            Sistema Digital de Monitoreo
           </h1>
           <p style={{
             fontSize: 16,
