@@ -9,7 +9,7 @@ export interface StudyArea {
 export const STUDY_AREAS: StudyArea[] = [
   {
     slug: 'bbj',
-    path: '/bbj',
+    path: '/bbj/',
     name: 'Bordo Benito Juárez',
     shortName: 'BBJ',
     description: 'Mapa, visitas, agua, fotos y reportes',
@@ -17,7 +17,8 @@ export const STUDY_AREAS: StudyArea[] = [
 ]
 
 export function studyAreaFromPath(pathname: string) {
+  const normalizedPathname = pathname.endsWith('/') ? pathname : `${pathname}/`
   return STUDY_AREAS.find(area => (
-    pathname === area.path || pathname.startsWith(`${area.path}/`)
+    normalizedPathname === area.path || normalizedPathname.startsWith(area.path)
   )) ?? null
 }

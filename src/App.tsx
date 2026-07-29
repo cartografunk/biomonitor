@@ -55,7 +55,7 @@ export default function App() {
     return <HomeView onNavigate={navigateToPath} />
   }
 
-  return <StudyAreaApp studyArea={studyArea ?? studyAreaFromPath('/bbj')!} />
+  return <StudyAreaApp studyArea={studyArea ?? studyAreaFromPath('/bbj/')!} />
 }
 
 function StudyAreaApp({ studyArea }: { studyArea: StudyArea }) {
