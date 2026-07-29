@@ -3,16 +3,14 @@ import { supabase } from '../lib/supabase'
 
 const R2_PUBLIC_URL = (import.meta.env.VITE_R2_PUBLIC_URL as string | undefined)?.replace(/\/$/, '') ?? ''
 
-interface VisitOption {
-  id: string
-  visit_date: string
-}
-
 interface PhotoRow {
   id: string
   storage_key: string
   thumbnail_key: string | null
   captured_at: string
+  visits: {
+    visit_date: string
+  } | null
   visit_point_records: {
     fixed_points: {
       point_number: number
@@ -35,6 +33,7 @@ interface GalleryPhoto {
   siteKey: string
   siteLabel: string
   capturedAt: string
+  visitDate: string
   pointNumber: number | null
 }
 
@@ -63,10 +62,9 @@ function formatDate(date: string) {
 
 export default function PhotosView() {
   const [visitDate, setVisitDate] = useState(getMexicoCityDate())
-  const [visits, setVisits] = useState<VisitOption[]>([])
   const [photos, setPhotos] = useState<GalleryPhoto[]>([])
   const [selectedPhotoId, setSelectedPhotoId] = useState<string | null>(null)
-  const [selectedSite, setSelectedSite] = useState('all')
+  const [selectedSite, setSelectedSite] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -79,60 +77,54 @@ export default function PhotosView() {
   }, [photos])
 
   const filteredPhotos = useMemo(
-    () => photos.filter(photo => selectedSite === 'all' || photo.siteKey === selectedSite),
+    () => photos.filter(photo => photo.siteKey === selectedSite),
     [photos, selectedSite]
   )
 
   const selectedPhoto = useMemo(
-    () => filteredPhotos.find(photo => photo.id === selectedPhotoId) ?? filteredPhotos[filteredPhotos.length - 1],
+    () => filteredPhotos.find(photo => photo.id === selectedPhotoId) ?? null,
     [filteredPhotos, selectedPhotoId]
   )
   const selectedPhotoIndex = selectedPhoto
     ? filteredPhotos.findIndex(photo => photo.id === selectedPhoto.id)
     : -1
+  const availableDates = useMemo(
+    () => Array.from(new Set(filteredPhotos.map(photo => photo.visitDate))).sort((a, b) => b.localeCompare(a)),
+    [filteredPhotos]
+  )
 
-  const handleSiteChange = (nextSite: string) => {
-    const nextPhotos = photos.filter(photo => nextSite === 'all' || photo.siteKey === nextSite)
-    setSelectedSite(nextSite)
-    setSelectedPhotoId(nextPhotos[nextPhotos.length - 1]?.id ?? null)
-  }
-
-  const currentVisitIndex = visits.findIndex(visit => visit.visit_date === visitDate)
-  const canGoPrevious = currentVisitIndex >= 0 && currentVisitIndex < visits.length - 1
+  const currentVisitIndex = availableDates.findIndex(date => date === visitDate)
+  const canGoPrevious = currentVisitIndex >= 0 && currentVisitIndex < availableDates.length - 1
   const canGoNext = currentVisitIndex > 0
 
+  const selectPhoto = (photo: GalleryPhoto | undefined) => {
+    setSelectedPhotoId(photo?.id ?? null)
+    if (photo) setVisitDate(photo.visitDate)
+  }
+
+  const selectLatestPhotoForDate = (date: string, source = filteredPhotos) => {
+    setVisitDate(date)
+    const photo = [...source].reverse().find(item => item.visitDate === date)
+    setSelectedPhotoId(photo?.id ?? null)
+  }
+
+  const handleSiteChange = (nextSite: string) => {
+    const nextPhotos = photos.filter(photo => photo.siteKey === nextSite)
+    const latestPhoto = nextPhotos[nextPhotos.length - 1]
+    setSelectedSite(nextSite)
+    setSelectedPhotoId(latestPhoto?.id ?? null)
+    if (latestPhoto) setVisitDate(latestPhoto.visitDate)
+  }
+
   const goPrevious = () => {
-    if (canGoPrevious) setVisitDate(visits[currentVisitIndex + 1].visit_date)
+    if (!canGoPrevious) return
+    selectLatestPhotoForDate(availableDates[currentVisitIndex + 1])
   }
 
   const goNext = () => {
-    if (canGoNext) setVisitDate(visits[currentVisitIndex - 1].visit_date)
+    if (!canGoNext) return
+    selectLatestPhotoForDate(availableDates[currentVisitIndex - 1])
   }
-
-  useEffect(() => {
-    let isMounted = true
-
-    async function loadVisits() {
-      const { data } = await supabase
-        .from('visits')
-        .select('id, visit_date')
-        .order('visit_date', { ascending: false })
-
-      if (!isMounted) return
-
-      const rows = (data ?? []) as VisitOption[]
-      setVisits(rows)
-      if (rows.length > 0 && !rows.some(row => row.visit_date === visitDate)) {
-        setVisitDate(rows[0].visit_date)
-      }
-    }
-
-    loadVisits()
-
-    return () => {
-      isMounted = false
-    }
-  }, [visitDate])
 
   useEffect(() => {
     let isMounted = true
@@ -142,20 +134,6 @@ export default function PhotosView() {
       setError(null)
       setSelectedPhotoId(null)
 
-      const { data: visit } = await supabase
-        .from('visits')
-        .select('id')
-        .eq('visit_date', visitDate)
-        .maybeSingle()
-
-      if (!isMounted) return
-
-      if (!visit?.id) {
-        setPhotos([])
-        setLoading(false)
-        return
-      }
-
       const { data, error: photosError } = await supabase
         .from('photos')
         .select(`
@@ -163,6 +141,9 @@ export default function PhotosView() {
           storage_key,
           thumbnail_key,
           captured_at,
+          visits (
+            visit_date
+          ),
           visit_point_records (
             fixed_points (
               point_number,
@@ -174,7 +155,6 @@ export default function PhotosView() {
             importance
           )
         `)
-        .eq('visit_id', visit.id)
         .order('captured_at', { ascending: true })
 
       if (!isMounted) return
@@ -188,6 +168,9 @@ export default function PhotosView() {
 
       const gallery: GalleryPhoto[] = ((data ?? []) as unknown as PhotoRow[])
         .map(photo => {
+          const photoVisitDate = photo.visits?.visit_date
+          if (!photoVisitDate) return null
+
           const fixedPoint = photo.visit_point_records?.fixed_points
           const event = photo.extra_events
           const imageUrl = r2Url(photo.thumbnail_key || photo.storage_key)
@@ -212,14 +195,18 @@ export default function PhotosView() {
             siteKey,
             siteLabel,
             capturedAt: photo.captured_at,
+            visitDate: photoVisitDate,
             pointNumber: fixedPoint?.point_number ?? null,
           }
         })
+        .filter((photo): photo is GalleryPhoto => photo !== null)
         .sort((a, b) => a.capturedAt.localeCompare(b.capturedAt))
 
+      const latestPhoto = gallery[gallery.length - 1]
       setPhotos(gallery)
-      setSelectedSite('all')
-      setSelectedPhotoId(gallery[gallery.length - 1]?.id ?? null)
+      setSelectedSite(latestPhoto?.siteKey ?? '')
+      setSelectedPhotoId(latestPhoto?.id ?? null)
+      if (latestPhoto) setVisitDate(latestPhoto.visitDate)
       setLoading(false)
     }
 
@@ -228,7 +215,7 @@ export default function PhotosView() {
     return () => {
       isMounted = false
     }
-  }, [visitDate])
+  }, [])
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -273,7 +260,7 @@ export default function PhotosView() {
           <input
             type="date"
             value={visitDate}
-            onChange={e => setVisitDate(e.target.value)}
+            onChange={e => selectLatestPhotoForDate(e.target.value)}
             style={{
               flex: 1,
               border: '1.5px solid var(--color-border)',
@@ -304,35 +291,6 @@ export default function PhotosView() {
           </button>
         </div>
 
-        {visits.length > 0 && (
-          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>
-            {visits.map(visit => {
-              const active = visit.visit_date === visitDate
-              return (
-                <button
-                  key={visit.id}
-                  onClick={() => setVisitDate(visit.visit_date)}
-                  style={{
-                    flex: '0 0 auto',
-                    border: active ? '1.5px solid var(--color-accent)' : '1.5px solid var(--color-border)',
-                    background: active ? 'var(--color-accent-light)' : 'var(--color-surface)',
-                    color: active ? 'var(--color-accent)' : 'var(--color-text-muted)',
-                    borderRadius: 'var(--radius-md)',
-                    padding: '7px 10px',
-                    fontSize: 12,
-                    fontWeight: active ? 600 : 500,
-                    fontFamily: 'var(--font-sans)',
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {formatDate(visit.visit_date)}
-                </button>
-              )
-            })}
-          </div>
-        )}
-
         {siteOptions.length > 0 && (
           <select
             value={selectedSite}
@@ -349,7 +307,6 @@ export default function PhotosView() {
               color: 'var(--color-text-primary)',
             }}
           >
-            <option value="all">Todos los sitios</option>
             {siteOptions.map(option => (
               <option key={option.value} value={option.value}>{option.label}</option>
             ))}
@@ -372,7 +329,7 @@ export default function PhotosView() {
 
         {!loading && !error && filteredPhotos.length === 0 && (
           <div style={{ fontSize: 13, color: 'var(--color-text-muted)', textAlign: 'center', marginTop: 32 }}>
-            Sin fotos registradas en esta fecha
+            Sin fotos registradas para este punto
           </div>
         )}
 
@@ -386,6 +343,12 @@ export default function PhotosView() {
             marginBottom: 12,
           }}>
             Falta configurar VITE_R2_PUBLIC_URL para construir las URLs públicas de las fotos.
+          </div>
+        )}
+
+        {!loading && !error && filteredPhotos.length > 0 && !selectedPhoto && (
+          <div style={{ fontSize: 13, color: 'var(--color-text-muted)', textAlign: 'center', marginTop: 32 }}>
+            Sin fotos de {siteOptions.find(option => option.value === selectedSite)?.label ?? 'este punto'} en {formatDate(visitDate)}
           </div>
         )}
 
@@ -440,7 +403,7 @@ export default function PhotosView() {
                 )}
               </div>
               <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 2 }}>
-                {selectedPhoto.subtitle}
+                {formatDate(selectedPhoto.visitDate)} {'\u00B7'} {selectedPhoto.subtitle}
               </div>
             </div>
 
@@ -457,7 +420,7 @@ export default function PhotosView() {
                 <button
                   onClick={() => {
                     const previous = Math.max(0, selectedPhotoIndex - 1)
-                    setSelectedPhotoId(filteredPhotos[previous]?.id ?? null)
+                    selectPhoto(filteredPhotos[previous])
                   }}
                   disabled={selectedPhotoIndex <= 0}
                   style={{
@@ -480,7 +443,7 @@ export default function PhotosView() {
                     min={0}
                     max={Math.max(0, filteredPhotos.length - 1)}
                     value={Math.max(0, selectedPhotoIndex)}
-                    onChange={event => setSelectedPhotoId(filteredPhotos[Number(event.target.value)]?.id ?? null)}
+                    onChange={event => selectPhoto(filteredPhotos[Number(event.target.value)])}
                     style={{ width: '100%' }}
                   />
                   <div style={{ fontSize: 11, color: 'var(--color-text-muted)', textAlign: 'center', marginTop: 2 }}>
@@ -490,7 +453,7 @@ export default function PhotosView() {
                 <button
                   onClick={() => {
                     const next = Math.min(filteredPhotos.length - 1, selectedPhotoIndex + 1)
-                    setSelectedPhotoId(filteredPhotos[next]?.id ?? null)
+                    selectPhoto(filteredPhotos[next])
                   }}
                   disabled={selectedPhotoIndex >= filteredPhotos.length - 1}
                   style={{
