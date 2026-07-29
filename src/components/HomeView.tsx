@@ -78,7 +78,7 @@ export default function HomeView({ onNavigate }: { onNavigate?: (path: string) =
             color: 'var(--color-text-muted)',
             maxWidth: 620,
           }}>
-            Biomonitor organiza visitas de campo, fotografías, puntos de muestreo y parámetros fisicoquímicos para proyectos de restauración y seguimiento.
+            Biomonitor organiza visitas registros en campo, fotografías, sitios de muestreo, calidad del agua y otros parámetros de proyectos de investigación, manejo, restauración, saneamiento y conservación de cuerpos de agua
           </p>
         </section>
 
