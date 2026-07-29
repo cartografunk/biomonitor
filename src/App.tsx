@@ -19,7 +19,7 @@ type PasswordFlow = 'invite' | 'recovery' | null
 const NAV_ITEMS: { id: Tab; label: string }[] = [
   { id: 'mapa',     label: 'Mapa' },
   { id: 'visita',   label: 'Visita' },
-  { id: 'agua',     label: 'Agua' },
+  { id: 'agua',     label: 'Calidad de agua' },
   { id: 'fotos',    label: 'Fotos' },
   { id: 'reportes', label: 'Reportes' },
 ]
@@ -268,6 +268,8 @@ function StudyAreaApp({ studyArea }: { studyArea: StudyArea }) {
               transition: 'color .15s',
               cursor: 'pointer',
               fontFamily: 'var(--font-sans)',
+              lineHeight: 1.15,
+              minHeight: 48,
             }}
           >
             {item.label}
