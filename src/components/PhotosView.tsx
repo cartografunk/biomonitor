@@ -35,6 +35,7 @@ interface GalleryPhoto {
   capturedAt: string
   visitDate: string
   pointNumber: number | null
+  photoSlot: number | null
 }
 
 function getMexicoCityDate() {
@@ -58,6 +59,18 @@ function formatDate(date: string) {
     month: 'short',
     timeZone: 'America/Mexico_City',
   }).format(new Date(`${date}T12:00:00`)).replace('.', '')
+}
+
+function photoSiteKey(pointNumber: number | null, photoSlot: number | null) {
+  if (!pointNumber) return 'extra-event'
+  if (pointNumber === 1) return `point-1-photo-${photoSlot ?? 1}`
+  return `point-${pointNumber}`
+}
+
+function photoSiteLabel(pointNumber: number | null, photoSlot: number | null) {
+  if (!pointNumber) return 'Eventos'
+  if (pointNumber === 1) return `Punto 1 · Foto ${photoSlot ?? 1}`
+  return `Punto ${pointNumber}`
 }
 
 export default function PhotosView() {
@@ -167,7 +180,7 @@ export default function PhotosView() {
       }
 
       const gallery: GalleryPhoto[] = ((data ?? []) as unknown as PhotoRow[])
-        .map(photo => {
+        .map((photo, _, allPhotos) => {
           const photoVisitDate = photo.visits?.visit_date
           if (!photoVisitDate) return null
 
@@ -175,9 +188,19 @@ export default function PhotosView() {
           const event = photo.extra_events
           const imageUrl = r2Url(photo.thumbnail_key || photo.storage_key)
           const fullUrl = r2Url(photo.storage_key)
-          const siteKey = fixedPoint ? `point-${fixedPoint.point_number}` : 'extra-event'
-          const siteLabel = fixedPoint ? `Punto ${fixedPoint.point_number}` : 'Eventos'
           const kind: GalleryPhoto['kind'] = fixedPoint ? 'fixed_point' : 'extra_event'
+          const pointNumber = fixedPoint?.point_number ?? null
+          const samePointDatePhotos = allPhotos
+            .filter(item => (
+              item.visits?.visit_date === photoVisitDate &&
+              item.visit_point_records?.fixed_points?.point_number === pointNumber
+            ))
+            .sort((a, b) => a.captured_at.localeCompare(b.captured_at))
+          const photoSlot = pointNumber === 1
+            ? samePointDatePhotos.findIndex(item => item.id === photo.id) + 1
+            : null
+          const siteKey = photoSiteKey(pointNumber, photoSlot)
+          const siteLabel = photoSiteLabel(pointNumber, photoSlot)
 
           return {
             id: photo.id,
@@ -196,7 +219,8 @@ export default function PhotosView() {
             siteLabel,
             capturedAt: photo.captured_at,
             visitDate: photoVisitDate,
-            pointNumber: fixedPoint?.point_number ?? null,
+            pointNumber,
+            photoSlot,
           }
         })
         .filter((photo): photo is GalleryPhoto => photo !== null)
@@ -356,16 +380,19 @@ export default function PhotosView() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             {selectedPhoto.imageUrl || selectedPhoto.fullUrl ? (
               <a href={selectedPhoto.fullUrl || selectedPhoto.imageUrl} target="_blank" rel="noreferrer" style={{
-                display: 'block',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                height: 'clamp(420px, 58vh, 760px)',
                 borderRadius: 'var(--radius-md)',
                 overflow: 'hidden',
                 background: '#000',
                 border: '1px solid var(--color-border)',
               }}>
                 <img
-                  src={selectedPhoto.imageUrl || selectedPhoto.fullUrl}
+                  src={selectedPhoto.fullUrl || selectedPhoto.imageUrl}
                   alt={selectedPhoto.title}
-                  style={{ width: '100%', height: 260, objectFit: 'contain', display: 'block' }}
+                  style={{ maxWidth: '100%', width: 'auto', height: '100%', objectFit: 'contain', display: 'block' }}
                 />
               </a>
             ) : (
@@ -476,7 +503,7 @@ export default function PhotosView() {
                 {filteredPhotos.map(photo => (
                   <button
                     key={photo.id}
-                    onClick={() => setSelectedPhotoId(photo.id)}
+                    onClick={() => selectPhoto(photo)}
                     style={{
                       position: 'relative',
                       flex: '0 0 72px',
