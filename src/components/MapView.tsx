@@ -87,7 +87,8 @@ export default function MapView({
   const markersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([])
   const markerPinsRef = useRef<Map<number, HTMLDivElement>>(new Map())
   const pointStatesRef = useRef<PointState[] | null>(null)
-  const [selectedPoint, setSelectedPoint] = useState<number | null>(null)
+  const [hoveredPoint, setHoveredPoint] = useState<number | null>(null)
+  const [pinnedPoint, setPinnedPoint] = useState<number | null>(null)
 
   const [pointStates, setPointStates] = useState<PointState[] | null>(null)
   const [photosByPoint, setPhotosByPoint] = useState<Record<number, MapPhoto[]>>({})
@@ -270,7 +271,8 @@ export default function MapView({
           pointer-events: ${pointStatesRef.current ? 'auto' : 'none'};
         `
         pin.textContent = `P${point.id}`
-        pin.addEventListener('mouseenter', () => setSelectedPoint(point.id))
+        pin.addEventListener('mouseenter', () => setHoveredPoint(point.id))
+        pin.addEventListener('mouseleave', () => setHoveredPoint(null))
         markerPins.set(point.id, pin)
 
         const marker = new AdvancedMarkerElement({
@@ -281,7 +283,7 @@ export default function MapView({
         })
 
         marker.addListener('click', () => {
-          setSelectedPoint(point.id)
+          setPinnedPoint(point.id)
         })
 
         return marker
@@ -307,6 +309,7 @@ export default function MapView({
     applyPointColors(markerPinsRef.current, pointStates)
   }, [pointStates])
 
+  const selectedPoint = hoveredPoint ?? pinnedPoint
   const selected = FIXED_POINTS.find(p => p.id === selectedPoint)
   const selectedState = pointStates?.find(s => s.id === selectedPoint)
   const selectedPhotos = selectedPoint ? photosByPoint[selectedPoint] ?? [] : []
@@ -449,7 +452,10 @@ export default function MapView({
             )}
           </div>
           <button
-            onClick={() => setSelectedPoint(null)}
+            onClick={() => {
+              setHoveredPoint(null)
+              setPinnedPoint(null)
+            }}
             style={{
               position: 'absolute', top: 10, right: 12,
               background: 'none', border: 'none',
