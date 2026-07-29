@@ -559,7 +559,7 @@ export default function MapView({
                 </div>
               ) : (
                 <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
-                  Sin mediciones físico-químicas registradas
+                  Sin mediciones fisicoquímicas registradas
                 </div>
               )
             ) : photosLoading ? (

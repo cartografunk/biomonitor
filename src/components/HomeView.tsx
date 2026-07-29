@@ -78,7 +78,7 @@ export default function HomeView({ onNavigate }: { onNavigate?: (path: string) =
             color: 'var(--color-text-muted)',
             maxWidth: 620,
           }}>
-            Biomonitor organiza visitas de campo, fotografías, puntos de muestreo y parámetros físico-químicos para proyectos de restauración y seguimiento.
+            Biomonitor organiza visitas de campo, fotografías, puntos de muestreo y parámetros fisicoquímicos para proyectos de restauración y seguimiento.
           </p>
         </section>
 
