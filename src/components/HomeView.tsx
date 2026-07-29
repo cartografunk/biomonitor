@@ -113,18 +113,16 @@ export default function HomeView({ onNavigate }: { onNavigate?: (path: string) =
                 </span>
               </span>
               <span style={{
-                width: 34,
-                height: 34,
-                borderRadius: '50%',
+                border: '1.5px solid var(--color-accent)',
+                borderRadius: 'var(--radius-md)',
                 background: 'var(--color-accent-light)',
                 color: 'var(--color-accent)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 20,
-                fontWeight: 500,
+                padding: '8px 10px',
+                fontSize: 12,
+                fontWeight: 700,
+                whiteSpace: 'nowrap',
               }}>
-                ›
+                Abrir proyecto
               </span>
             </a>
           ))}
