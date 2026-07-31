@@ -134,7 +134,7 @@ interface SectionConfig {
 
 const EMPTY: ReportForm = {
   fecha: TODAY,
-  responsable: 'M. Een GIC. Omar Carbajar Becerra',
+  responsable: 'M. en GIC. Omar Carbajar Becerra',
   descripcion_general: 'Esta inspección consta de un recorrido diario en donde se realizan observaciones del ANP y se reportan los aspectos de importancia para su mantenimiento y correcto funcionamiento.',
   hora_llegada: '08:00',
   area_recorrido: 'Circuito completo del ANP.',
