@@ -238,7 +238,7 @@ function StudyAreaApp({ studyArea }: { studyArea: StudyArea }) {
         {tab === 'visita'   && <VisitaView session={session} role={role} visitDate={visitDate} onVisitDateChange={setVisitDate} onVisitDataChanged={handleVisitDataChanged} />}
         {tab === 'agua'     && <AguaView />}
         {tab === 'fotos'    && <PhotosView />}
-        {tab === 'reportes' && <ReportesView role={role} />}
+        {tab === 'reportes' && <ReportesView role={role} visitDate={visitDate} onVisitDateChange={setVisitDate} />}
       </main>
 
       {/* Bottom nav */}

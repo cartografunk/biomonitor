@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import type { UserRole } from '../types'
+
+const R2_PUBLIC_URL = (import.meta.env.VITE_R2_PUBLIC_URL as string | undefined)?.replace(/\/$/, '') ?? ''
 
 function getMexicoCityDate() {
   return new Intl.DateTimeFormat('en-CA', {
@@ -11,28 +13,70 @@ function getMexicoCityDate() {
   }).format(new Date())
 }
 
-function getMexicoCityDisplayDate() {
+function getMexicoCityDisplayDate(date = getMexicoCityDate()) {
   return new Intl.DateTimeFormat('es-MX', {
     timeZone: 'America/Mexico_City',
     weekday: 'long',
     day: 'numeric',
     month: 'long',
     year: 'numeric',
-  }).format(new Date())
+  }).format(new Date(`${date}T12:00:00`))
+}
+
+function formatShortDate(date = getMexicoCityDate()) {
+  const [year, month, day] = date.split('-')
+  return `${day}/${month}/${year}`
+}
+
+function r2Url(key: string | null | undefined) {
+  if (!R2_PUBLIC_URL || !key) return ''
+  return `${R2_PUBLIC_URL}/${key.replace(/^\/+/, '')}`
 }
 
 const TODAY = getMexicoCityDate()
-const TODAY_LABEL = getMexicoCityDisplayDate()
+
+type SectionKey =
+  | 'datos_generales'
+  | 'mantenimiento'
+  | 'calidad_agua'
+  | 'zona_litoral'
+  | 'deshierbe'
+  | 'infraestructura'
 
 interface ReportForm {
+  fecha: string
+  responsable: string
+  descripcion_general: string
   hora_llegada: string
-  nivel_agua: string
-  trabajadores: string
-  aromas: string
-  fauna_nociva: string
-  obras_toma: string
-  desmalezado: string
-  fauna_local: string
+  area_recorrido: string
+  puntos_importancia: string
+  desc_datos_generales: string
+  inicio_jornada: string
+  personal_operativo: string
+  area_extraccion: string
+  area_anterior: string
+  areas_prioritarias: string
+  desc_mantenimiento: string
+  ingreso_cauce: string
+  olor_agua: string
+  aspecto_agua: string
+  lodos_precipitables: string
+  ingreso_canales: string
+  nota_agua: string
+  desc_calidad_agua: string
+  estado_orillas: string
+  acumulacion_materiales: string
+  desc_zona_litoral: string
+  zona_desmalezado: string
+  cobertura_desmalezado: string
+  institucion_desmalezado: string
+  nucleo_desmalezado: string
+  desc_deshierbe: string
+  compuerta_cortina: string
+  obra_toma_alta: string
+  obra_toma_baja: string
+  otras_acciones: string
+  desc_infraestructura: string
 }
 
 interface WaterReport {
@@ -52,27 +96,163 @@ interface WaterMeasurementRow extends WaterReport {
   } | null
 }
 
-const EMPTY: ReportForm = {
-  hora_llegada: '',
-  nivel_agua: '',
-  trabajadores: '',
-  aromas: '',
-  fauna_nociva: '',
-  obras_toma: '',
-  desmalezado: '',
-  fauna_local: '',
+interface VisitPhotoRow {
+  id: string
+  storage_key: string
+  thumbnail_key: string | null
+  captured_at: string
+  visit_point_records: {
+    fixed_points: {
+      point_number: number
+      label: string
+    } | null
+  } | null
 }
 
-const FIELDS: { key: keyof ReportForm; label: string; placeholder: string; optional?: boolean }[] = [
-  { key: 'hora_llegada',  label: 'Hora de llegada',         placeholder: '09:00' },
-  { key: 'nivel_agua',    label: 'Nivel del agua',           placeholder: 'Bajó el nivel del agua, se empiezan a notar azolves en la rivera' },
-  { key: 'trabajadores',  label: 'Trabajadores in situ',     placeholder: 'Jornada de trabajo en zona oeste dedicada a la extracción de lirio con retroexcavadora' },
-  { key: 'aromas',        label: 'Aromas',                   placeholder: 'No se detecta aroma en el agua' },
-  { key: 'fauna_nociva',  label: 'Fauna nociva y maleza',    placeholder: 'Disminución de presencia de mosquitos en la zona de selva', optional: true },
-  { key: 'obras_toma',    label: 'Obras de toma',            placeholder: 'Obra de toma alta cerrada por obra de CEA' },
-  { key: 'desmalezado',   label: 'Desmalezado',              placeholder: 'Se requiere desmalezado en zona oeste y selva', optional: true },
-  { key: 'fauna_local',   label: 'Fauna local observada',    placeholder: 'Gallinulas, fúlicas y testudines', optional: true },
+interface ReportImage {
+  id: string
+  name: string
+  src: string
+  source: 'visit' | 'manual'
+  pointNumber?: number
+}
+
+interface FieldConfig {
+  key: keyof ReportForm
+  label: string
+  placeholder: string
+  rows?: number
+}
+
+interface SectionConfig {
+  key: SectionKey
+  title: string
+  fields: FieldConfig[]
+  descriptionKey: keyof ReportForm
+}
+
+const EMPTY: ReportForm = {
+  fecha: TODAY,
+  responsable: 'M. Een GIC. Omar Carbajar Becerra',
+  descripcion_general: 'Esta inspección consta de un recorrido diario en donde se realizan observaciones del ANP y se reportan los aspectos de importancia para su mantenimiento y correcto funcionamiento.',
+  hora_llegada: '09:00',
+  area_recorrido: 'Circuito completo del ANP.',
+  puntos_importancia: 'Áreas prioritarias de extracción de lirio, periferia ANP, cauce principal de ingreso de agua al bordo, orillas del bordo, infraestructura hidráulica de desfogue del bordo y canales pluviales, zona núcleo del ANP.',
+  desc_datos_generales: 'Recorrido diario ANP BBJ',
+  inicio_jornada: '7:00 am',
+  personal_operativo: '2 personas.',
+  area_extraccion: 'Zona Noroeste del bordo.',
+  area_anterior: 'Zona Noreste (extracción de lirio terminada).',
+  areas_prioritarias: 'Zona Noroeste.',
+  desc_mantenimiento: 'Actividades de mantenimiento y extracción de lirio acuático en la Zona Noreste del bordo y área limpia en la zona Noroeste',
+  ingreso_cauce: 'Con ingreso de agua.',
+  olor_agua: 'Agua con olor a agua residual.',
+  aspecto_agua: 'Ligera turbidez en el agua.',
+  lodos_precipitables: 'Sin inspección por mantenimiento de equipo.',
+  ingreso_canales: 'Sin ingreso de agua.',
+  nota_agua: 'No se tomaron muestras de aspecto por mantenimiento de equipo para toma de muestras.',
+  desc_calidad_agua: 'Aspecto del agua que ingresa al bordo. Canales pluviales secundarios sin ingreso de agua.',
+  estado_orillas: 'Orillas sin acumulación de lirio con incremento de área por la disminución de nivel de agua y superficies fangosas.',
+  acumulacion_materiales: 'Zonas (Norte, Noreste y Noroeste) con acumulación excesiva de basura, restos leñosos y madera. Zona (Sur, Suroeste, Este), sin acumulación de residuos. Zona (Sureste), con acumulación de restos leñosos.',
+  desc_zona_litoral: 'Ampliación de área de orillas por disminución del agua del bordo con acumulación de residuos principalmente en zona norte.',
+  zona_desmalezado: 'Desmalezado de la periferia completa del ANP.',
+  cobertura_desmalezado: '100% de la periferia del ANP.',
+  institucion_desmalezado: 'INDEREQ',
+  nucleo_desmalezado: 'Pendiente.',
+  desc_deshierbe: 'Desmalezado realizado por INDEREQ en la periferia total del ANP.',
+  compuerta_cortina: 'Compuerta abierta sin desfogue por bajo nivel de agua.',
+  obra_toma_alta: 'Compuerta abierta y desfogando.',
+  obra_toma_baja: 'Compuerta abierta y desfogando.',
+  otras_acciones: 'Personal de la CEA realiza jornada de mantenimiento preventivo y limpieza de obra de toma alta y comentan que se programara el transporte de los residuos sólidos extraídos fuera del parque.',
+  desc_infraestructura: 'Compuertas de desfogue en el bordo abiertas.',
+}
+
+const SECTION_CONFIGS: SectionConfig[] = [
+  {
+    key: 'datos_generales',
+    title: '1.- Datos generales',
+    descriptionKey: 'desc_datos_generales',
+    fields: [
+      { key: 'hora_llegada', label: 'Inicio de recorrido de inspección', placeholder: '09:00 am' },
+      { key: 'area_recorrido', label: 'Área de recorrido diario', placeholder: 'Circuito completo del ANP.' },
+      { key: 'puntos_importancia', label: 'Puntos de importancia en la inspección', placeholder: 'Áreas prioritarias...', rows: 3 },
+    ],
+  },
+  {
+    key: 'mantenimiento',
+    title: '2.- Seguimiento a operaciones diarias de mantenimiento',
+    descriptionKey: 'desc_mantenimiento',
+    fields: [
+      { key: 'inicio_jornada', label: 'Inicio de jornada de mantenimiento y extracción de lirio acuático', placeholder: '7:00 am' },
+      { key: 'personal_operativo', label: 'Personal operativo de extracción', placeholder: '2 personas.' },
+      { key: 'area_extraccion', label: 'Área de extracción de lirio', placeholder: 'Zona Noroeste del bordo.' },
+      { key: 'area_anterior', label: 'Área anterior de extracción', placeholder: 'Zona Noreste...' },
+      { key: 'areas_prioritarias', label: 'Áreas prioritarias para la extracción', placeholder: 'Zona Noroeste.' },
+    ],
+  },
+  {
+    key: 'calidad_agua',
+    title: '3.- Calidad del agua',
+    descriptionKey: 'desc_calidad_agua',
+    fields: [
+      { key: 'ingreso_cauce', label: 'Ingreso de agua al bordo por cauce principal', placeholder: 'Con ingreso de agua.' },
+      { key: 'olor_agua', label: 'Olor del agua', placeholder: 'Agua con olor a...' },
+      { key: 'aspecto_agua', label: 'Aspecto del agua que ingresa al bordo', placeholder: 'Ligera turbidez en el agua.' },
+      { key: 'lodos_precipitables', label: 'Lodos precipitables en el agua de ingreso', placeholder: 'Sin inspección...' },
+      { key: 'ingreso_canales', label: 'Ingreso de agua al bordo por canales pluviales secundarios', placeholder: 'Sin ingreso de agua.' },
+      { key: 'nota_agua', label: 'Nota', placeholder: 'No se tomaron muestras...', rows: 2 },
+    ],
+  },
+  {
+    key: 'zona_litoral',
+    title: '4.- Estado de zona litoral',
+    descriptionKey: 'desc_zona_litoral',
+    fields: [
+      { key: 'estado_orillas', label: 'Estado general de orillas', placeholder: 'Orillas sin acumulación...', rows: 2 },
+      { key: 'acumulacion_materiales', label: 'Acumulación de materiales en orillas', placeholder: 'Zonas norte...', rows: 3 },
+    ],
+  },
+  {
+    key: 'deshierbe',
+    title: '5.- Deshierbe de maleza',
+    descriptionKey: 'desc_deshierbe',
+    fields: [
+      { key: 'zona_desmalezado', label: 'Zona de desmalezado', placeholder: 'Periferia completa del ANP.' },
+      { key: 'cobertura_desmalezado', label: 'Cobertura de desmalezado', placeholder: '100% de la periferia del ANP.' },
+      { key: 'institucion_desmalezado', label: 'Institución que realiza desmalezado', placeholder: 'INDEREQ' },
+      { key: 'nucleo_desmalezado', label: 'Desmalezado de zona núcleo con cuadrilla interinstitucional', placeholder: 'Pendiente.' },
+    ],
+  },
+  {
+    key: 'infraestructura',
+    title: '6.- Infraestructura hidráulica',
+    descriptionKey: 'desc_infraestructura',
+    fields: [
+      { key: 'compuerta_cortina', label: 'Estado de la compuerta de la cortina del bordo', placeholder: 'Compuerta abierta...' },
+      { key: 'obra_toma_alta', label: 'Estado de la obra de toma alta', placeholder: 'Compuerta abierta...' },
+      { key: 'obra_toma_baja', label: 'Estado de la obra de toma baja', placeholder: 'Compuerta abierta...' },
+      { key: 'otras_acciones', label: 'Otras acciones observadas', placeholder: 'Personal de la CEA...', rows: 3 },
+    ],
+  },
 ]
+
+function createEmptyImages(): Record<SectionKey, ReportImage[]> {
+  return {
+    datos_generales: [],
+    mantenimiento: [],
+    calidad_agua: [],
+    zona_litoral: [],
+    deshierbe: [],
+    infraestructura: [],
+  }
+}
+
+const POINT_SECTION_MAP: Record<number, SectionKey> = {
+  1: 'datos_generales',
+  2: 'datos_generales',
+  3: 'datos_generales',
+  4: 'calidad_agua',
+}
 
 function addIfPresent(lines: string[], label: string, value: number | null, unit = '') {
   if (value !== null) {
@@ -83,7 +263,7 @@ function addIfPresent(lines: string[], label: string, value: number | null, unit
 function buildWaterBlock(water: WaterReport | null) {
   if (!water) return []
 
-  const lines = ['🌊 Parámetros de agua (P4):']
+  const lines = ['Parámetros de agua (P4):']
   addIfPresent(lines, 'Temperatura', water.temperatura_c, '°C')
   addIfPresent(lines, 'pH', water.ph)
   addIfPresent(lines, 'Conductividad', water.conductividad, 'mS')
@@ -103,39 +283,436 @@ function buildWaterBlock(water: WaterReport | null) {
 
 function buildText(form: ReportForm, water: WaterReport | null): string {
   const lines: string[] = []
-  lines.push(`📋 *Reporte de visita — Bordo Benito Juárez*`)
-  lines.push(`📅 ${TODAY_LABEL}`)
-  if (form.hora_llegada) lines.push(`🕐 Inicio de recorrido: ${form.hora_llegada}`)
+  lines.push('Reporte de inspección — Bordo Benito Juárez')
+  lines.push(getMexicoCityDisplayDate(form.fecha))
+  lines.push(`Responsable: ${form.responsable}`)
   lines.push('')
 
-  const freeFields = [
-    form.nivel_agua,
-    form.trabajadores,
-    form.aromas,
-    form.fauna_nociva,
-    form.obras_toma,
-    form.desmalezado,
-    form.fauna_local ? `Fauna local observada: ${form.fauna_local}` : '',
-  ].filter(Boolean)
-
-  freeFields.forEach((value, index) => {
-    lines.push(`${index + 1}. ${value}`)
+  SECTION_CONFIGS.forEach(section => {
+    lines.push(section.title)
+    section.fields.forEach(field => {
+      const value = form[field.key]
+      if (value) lines.push(`- ${field.label}: ${value}`)
+    })
+    if (section.key === 'calidad_agua') {
+      const waterBlock = buildWaterBlock(water)
+      if (waterBlock.length > 0) lines.push(...waterBlock)
+    }
+    lines.push('')
   })
 
-  const waterBlock = buildWaterBlock(water)
-  if (waterBlock.length > 0) {
-    if (freeFields.length > 0) lines.push('')
-    lines.push(...waterBlock)
-  }
-
-  return lines.join('\n')
+  return lines.join('\n').trim()
 }
 
-export default function ReportesView({ role }: { role: UserRole | null }) {
-  const [form, setForm] = useState<ReportForm>(EMPTY)
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
+}
+
+async function fetchAsDataUrl(url: string) {
+  const response = await fetch(url)
+  const blob = await response.blob()
+  return readFileAsDataUrl(new File([blob], 'letterhead-bbj.png', { type: blob.type }))
+}
+
+function chunk<T>(items: T[], size: number) {
+  const groups: T[][] = []
+  for (let index = 0; index < items.length; index += size) {
+    groups.push(items.slice(index, index + size))
+  }
+  return groups
+}
+
+function sectionFieldsHtml(section: SectionConfig, form: ReportForm) {
+  return section.fields
+    .filter(field => form[field.key])
+    .map(field => `
+      <li>
+        <span>${escapeHtml(field.label)}:</span>
+        ${escapeHtml(form[field.key])}
+      </li>
+    `)
+    .join('')
+}
+
+function waterHtml(water: WaterReport | null) {
+  const lines = buildWaterBlock(water)
+  if (lines.length === 0) return ''
+
+  return `
+    <div class="water-box">
+      ${lines.map((line, index) => (
+        index === 0
+          ? `<div class="water-title">${escapeHtml(line)}</div>`
+          : `<div>${escapeHtml(line.replace(/^• /, ''))}</div>`
+      )).join('')}
+    </div>
+  `
+}
+
+function photosHtml(form: ReportForm, section: SectionConfig, photos: ReportImage[], continuation = false) {
+  if (photos.length === 0) return ''
+
+  const gridClass = photos.length === 1 ? 'one' : photos.length === 2 ? 'two' : 'four'
+
+  return `
+    <table class="photo-table">
+      <thead>
+        <tr>
+          <th>Fecha: ${escapeHtml(formatShortDate(form.fecha))}</th>
+          <th>Descripción: ${escapeHtml(form[section.descriptionKey])}${continuation ? ' (continuación)' : ''}</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td colspan="2">
+            <div class="photo-grid ${gridClass}">
+              ${photos.map(photo => `
+                <figure>
+                  <img src="${photo.src}" alt="${escapeHtml(photo.name)}" />
+                </figure>
+              `).join('')}
+            </div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  `
+}
+
+function printablePage(letterheadDataUrl: string, pageNumber: number, content: string) {
+  return `
+    <section class="pdf-page" style="background-image: url('${letterheadDataUrl}')">
+      <main class="page-content">${content}</main>
+      <div class="page-number">Página ${pageNumber}</div>
+    </section>
+  `
+}
+
+function buildPrintableReport(form: ReportForm, water: WaterReport | null, images: Record<SectionKey, ReportImage[]>, letterheadDataUrl: string) {
+  let pageNumber = 1
+  const pages: string[] = []
+  const [firstSection, ...otherSections] = SECTION_CONFIGS
+  const firstPhotoGroups = chunk(images.datos_generales, 4)
+
+  pages.push(printablePage(letterheadDataUrl, pageNumber++, `
+    <h1>REPORTE DE INSPECCIÓN</h1>
+    <table class="meta-table">
+      <tbody>
+        <tr><th>Fecha:</th><td>${escapeHtml(getMexicoCityDisplayDate(form.fecha))}</td></tr>
+        <tr><th>Responsable:</th><td>${escapeHtml(form.responsable)}</td></tr>
+        <tr><th>Descripción:</th><td>${escapeHtml(form.descripcion_general)}</td></tr>
+      </tbody>
+    </table>
+    <h2>${escapeHtml(firstSection.title)}</h2>
+    <ul class="section-list">${sectionFieldsHtml(firstSection, form)}</ul>
+    ${firstPhotoGroups[0] ? photosHtml(form, firstSection, firstPhotoGroups[0]) : ''}
+  `))
+
+  firstPhotoGroups.slice(1).forEach(group => {
+    pages.push(printablePage(letterheadDataUrl, pageNumber++, photosHtml(form, firstSection, group, true)))
+  })
+
+  otherSections.forEach(section => {
+    const photoGroups = chunk(images[section.key], 4)
+    pages.push(printablePage(letterheadDataUrl, pageNumber++, `
+      <h2>${escapeHtml(section.title)}</h2>
+      <ul class="section-list">${sectionFieldsHtml(section, form)}</ul>
+      ${section.key === 'calidad_agua' ? waterHtml(water) : ''}
+      ${photoGroups[0] ? photosHtml(form, section, photoGroups[0]) : ''}
+    `))
+
+    photoGroups.slice(1).forEach(group => {
+      pages.push(printablePage(letterheadDataUrl, pageNumber++, photosHtml(form, section, group, true)))
+    })
+  })
+
+  return `<!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Reporte BBJ ${escapeHtml(form.fecha)}</title>
+        <style>
+          @page { size: letter; margin: 0; }
+          * { box-sizing: border-box; }
+          body {
+            margin: 0;
+            background: #d8d8d8;
+            color: #111;
+            font-family: Arial, Helvetica, sans-serif;
+          }
+          .pdf-page {
+            width: 8.5in;
+            height: 11in;
+            position: relative;
+            margin: 0 auto;
+            overflow: hidden;
+            page-break-after: always;
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+          }
+          .page-content {
+            position: absolute;
+            left: 0.58in;
+            right: 0.58in;
+            top: 1.18in;
+            bottom: 0.72in;
+          }
+          h1 {
+            margin: 0 0 0.22in;
+            text-align: center;
+            font-size: 15pt;
+            line-height: 1.15;
+            text-decoration: underline;
+          }
+          h2 {
+            margin: 0.2in 0 0.12in;
+            font-size: 10.5pt;
+            font-weight: 400;
+          }
+          .meta-table, .photo-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 9pt;
+          }
+          .meta-table th, .meta-table td,
+          .photo-table th, .photo-table td {
+            border: 1px solid #111;
+          }
+          .meta-table th {
+            width: 24%;
+            background: #e8e8e8;
+            text-align: left;
+            vertical-align: top;
+            padding: 0.04in 0.08in;
+          }
+          .meta-table td {
+            padding: 0.04in 0.08in;
+            vertical-align: top;
+          }
+          .section-list {
+            margin: 0 0 0.22in 0.38in;
+            padding-left: 0.25in;
+            font-size: 9.2pt;
+            line-height: 1.45;
+          }
+          .section-list li {
+            margin: 0 0 0.06in;
+          }
+          .section-list span {
+            font-weight: 400;
+          }
+          .photo-table {
+            margin-top: 0.14in;
+          }
+          .photo-table th {
+            padding: 0.035in 0.06in;
+            font-size: 8.5pt;
+            text-align: center;
+            font-weight: 700;
+          }
+          .photo-table td {
+            padding: 0.08in;
+          }
+          .photo-grid {
+            display: grid;
+            gap: 0.06in;
+            height: 5.2in;
+          }
+          .photo-grid.one {
+            grid-template-columns: 1fr;
+            height: 6.45in;
+          }
+          .photo-grid.two {
+            grid-template-columns: repeat(2, 1fr);
+            height: 5.9in;
+          }
+          .photo-grid.four {
+            grid-template-columns: repeat(2, 1fr);
+            grid-template-rows: repeat(2, 1fr);
+          }
+          figure {
+            margin: 0;
+            min-height: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #fff;
+            overflow: hidden;
+          }
+          img {
+            display: block;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+          }
+          .water-box {
+            border: 1px solid #111;
+            padding: 0.08in 0.1in;
+            margin: 0.1in 0 0.16in;
+            font-size: 9pt;
+            line-height: 1.35;
+          }
+          .water-title {
+            font-weight: 700;
+            margin-bottom: 0.04in;
+          }
+          .page-number {
+            position: absolute;
+            left: 0.55in;
+            bottom: 0.34in;
+            font-size: 8.5pt;
+            color: #777;
+          }
+          @media screen {
+            .pdf-page {
+              margin: 24px auto;
+              box-shadow: 0 8px 26px rgba(0,0,0,0.18);
+            }
+          }
+          @media print {
+            body { background: #fff; }
+            .pdf-page { margin: 0; box-shadow: none; }
+          }
+        </style>
+      </head>
+      <body>${pages.join('')}</body>
+    </html>`
+}
+
+const inputStyle = {
+  width: '100%',
+  boxSizing: 'border-box',
+  border: '1.5px solid var(--color-border)',
+  borderRadius: 'var(--radius-md)',
+  padding: '10px 12px',
+  fontSize: 14,
+  fontFamily: 'var(--font-sans)',
+  color: 'var(--color-text-primary)',
+  background: 'var(--color-bg)',
+  outline: 'none',
+  lineHeight: 1.5,
+} satisfies React.CSSProperties
+
+export default function ReportesView({
+  role,
+  visitDate,
+  onVisitDateChange,
+}: {
+  role: UserRole | null
+  visitDate: string
+  onVisitDateChange: (date: string) => void
+}) {
+  const [form, setForm] = useState<ReportForm>({ ...EMPTY, fecha: visitDate })
+  const [images, setImages] = useState<Record<SectionKey, ReportImage[]>>(createEmptyImages)
+  const [visitImages, setVisitImages] = useState<Record<SectionKey, ReportImage[]>>(createEmptyImages)
+  const [visitImagesLoading, setVisitImagesLoading] = useState(false)
+  const [visitImagesError, setVisitImagesError] = useState<string | null>(null)
   const [water, setWater] = useState<WaterReport | null>(null)
   const [copied, setCopied] = useState(false)
+  const [generating, setGenerating] = useState(false)
   const canEdit = role === 'editor'
+
+  useEffect(() => {
+    setForm(current => (
+      current.fecha === visitDate ? current : { ...current, fecha: visitDate }
+    ))
+  }, [visitDate])
+
+  useEffect(() => {
+    let isMounted = true
+
+    async function loadVisitImages() {
+      setVisitImagesLoading(true)
+      setVisitImagesError(null)
+      setVisitImages(createEmptyImages())
+
+      const { data: visit, error: visitError } = await supabase
+        .from('visits')
+        .select('id')
+        .eq('visit_date', form.fecha)
+        .maybeSingle()
+
+      if (!isMounted) return
+
+      if (visitError) {
+        setVisitImagesError('No se pudo buscar la visita de esa fecha.')
+        setVisitImagesLoading(false)
+        return
+      }
+
+      if (!visit?.id) {
+        setVisitImagesLoading(false)
+        return
+      }
+
+      const { data, error: photosError } = await supabase
+        .from('photos')
+        .select(`
+          id,
+          storage_key,
+          thumbnail_key,
+          captured_at,
+          visit_point_records (
+            fixed_points (
+              point_number,
+              label
+            )
+          )
+        `)
+        .eq('visit_id', visit.id)
+        .order('captured_at', { ascending: true })
+
+      if (!isMounted) return
+
+      if (photosError) {
+        setVisitImagesError('No se pudieron cargar las fotos ya registradas de la visita.')
+        setVisitImagesLoading(false)
+        return
+      }
+
+      const nextImages = createEmptyImages()
+
+      ;((data ?? []) as unknown as VisitPhotoRow[]).forEach(photo => {
+        const pointNumber = photo.visit_point_records?.fixed_points?.point_number
+        if (!pointNumber) return
+
+        const section = POINT_SECTION_MAP[pointNumber]
+        const src = r2Url(photo.storage_key)
+        if (!section || !src) return
+
+        nextImages[section].push({
+          id: `visit-${photo.id}`,
+          name: `Punto ${pointNumber}${pointNumber === 4 ? ' · Cono Imhoff' : ''}`,
+          src,
+          source: 'visit',
+          pointNumber,
+        })
+      })
+
+      setVisitImages(nextImages)
+      setVisitImagesLoading(false)
+    }
+
+    loadVisitImages()
+
+    return () => {
+      isMounted = false
+    }
+  }, [form.fecha])
 
   useEffect(() => {
     let isMounted = true
@@ -144,10 +721,15 @@ export default function ReportesView({ role }: { role: UserRole | null }) {
       const { data: visit } = await supabase
         .from('visits')
         .select('id')
-        .eq('visit_date', TODAY)
+        .eq('visit_date', form.fecha)
         .single()
 
-      if (!isMounted || !visit?.id) return
+      if (!isMounted) return
+
+      if (!visit?.id) {
+        setWater(null)
+        return
+      }
 
       const { data: rows } = await supabase
         .from('water_measurements')
@@ -181,6 +763,8 @@ export default function ReportesView({ role }: { role: UserRole | null }) {
           oxigeno_disuelto_mgl: p4.oxigeno_disuelto_mgl,
           oxigeno_disuelto_pct: p4.oxigeno_disuelto_pct,
         })
+      } else {
+        setWater(null)
       }
     }
 
@@ -189,12 +773,24 @@ export default function ReportesView({ role }: { role: UserRole | null }) {
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [form.fecha])
+
+  const text = useMemo(() => buildText(form, water), [form, water])
+  const reportImages = useMemo(() => {
+    const combined = {} as Record<SectionKey, ReportImage[]>
+    SECTION_CONFIGS.forEach(section => {
+      combined[section.key] = [...visitImages[section.key], ...images[section.key]]
+    })
+    return combined
+  }, [images, visitImages])
 
   const set = (key: keyof ReportForm, value: string) =>
-    setForm(f => ({ ...f, [key]: value }))
+    setForm(current => ({ ...current, [key]: value }))
 
-  const text = buildText(form, water)
+  const setReportDate = (value: string) => {
+    onVisitDateChange(value)
+    set('fecha', value)
+  }
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(text)
@@ -207,6 +803,52 @@ export default function ReportesView({ role }: { role: UserRole | null }) {
     window.open(`https://wa.me/?text=${encoded}`, '_blank')
   }
 
+  const handleAddImages = async (section: SectionKey, files: FileList | null) => {
+    if (!files?.length) return
+
+    const nextImages = await Promise.all(Array.from(files).map(async file => ({
+      id: `${section}-${Date.now()}-${file.name}-${Math.random().toString(16).slice(2)}`,
+      name: file.name,
+      src: await readFileAsDataUrl(file),
+      source: 'manual' as const,
+    })))
+
+    setImages(current => ({
+      ...current,
+      [section]: [...current[section], ...nextImages],
+    }))
+  }
+
+  const removeImage = (section: SectionKey, imageId: string) => {
+    setImages(current => ({
+      ...current,
+      [section]: current[section].filter(image => image.id !== imageId),
+    }))
+  }
+
+  const handlePrintPdf = async () => {
+    setGenerating(true)
+    try {
+      const base = import.meta.env.BASE_URL || '/'
+      const letterhead = await fetchAsDataUrl(`${base}letterhead-bbj.png`)
+      const printable = buildPrintableReport(form, water, reportImages, letterhead)
+      const printWindow = window.open('', '_blank')
+
+      if (!printWindow) {
+        alert('No se pudo abrir la vista de PDF. Permite ventanas emergentes para generar el reporte.')
+        return
+      }
+
+      printWindow.document.open()
+      printWindow.document.write(printable)
+      printWindow.document.close()
+      printWindow.focus()
+      setTimeout(() => printWindow.print(), 500)
+    } finally {
+      setGenerating(false)
+    }
+  }
+
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <div style={{
@@ -215,100 +857,287 @@ export default function ReportesView({ role }: { role: UserRole | null }) {
         borderBottom: '1px solid var(--color-border)',
         flexShrink: 0,
       }}>
-        <div style={{ fontWeight: 600, fontSize: 15 }}>Reporte del día</div>
-        <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 2 }}>{TODAY_LABEL}</div>
+        <div style={{ fontWeight: 600, fontSize: 15 }}>Reporte definitivo</div>
+        <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 2 }}>
+          Formulario + imágenes + hoja membretada
+        </div>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '16px 16px 120px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {FIELDS.map(f => (
-          <div key={f.key}>
-            <label style={{
-              fontSize: 12, fontWeight: 500,
-              color: 'var(--color-text-muted)',
-              display: 'flex', alignItems: 'center', gap: 4,
-              marginBottom: 5,
-            }}>
-              {f.label}
-              {f.optional && (
-                <span style={{ fontSize: 10, color: 'var(--color-border-strong)', fontWeight: 400 }}>opcional</span>
-              )}
-            </label>
-            {f.key === 'hora_llegada' ? (
+      <div style={{ flex: 1, overflowY: 'auto', padding: '16px 16px 150px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <section style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>Encabezado</div>
+          <Field
+            label="Fecha"
+            canEdit={canEdit}
+            value={form.fecha}
+            onChange={setReportDate}
+            type="date"
+          />
+          <Field
+            label="Responsable"
+            canEdit={canEdit}
+            value={form.responsable}
+            onChange={value => set('responsable', value)}
+            placeholder="Nombre del responsable"
+          />
+          <Field
+            label="Descripción"
+            canEdit={canEdit}
+            value={form.descripcion_general}
+            onChange={value => set('descripcion_general', value)}
+            placeholder="Descripción general del reporte"
+            rows={3}
+          />
+        </section>
+
+        {SECTION_CONFIGS.map(section => (
+          <section
+            key={section.key}
+            style={{
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-lg)',
+              background: 'var(--color-surface)',
+              padding: 14,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+            }}
+          >
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 15 }}>{section.title}</div>
+              <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 2 }}>
+                Las imágenes se insertan completas, sin recorte. Si son muchas, el reporte agrega páginas.
+              </div>
+            </div>
+
+            {section.fields.map(field => (
+              <Field
+                key={field.key}
+                label={field.label}
+                canEdit={canEdit}
+                value={form[field.key]}
+                onChange={value => set(field.key, value)}
+                placeholder={field.placeholder}
+                rows={field.rows}
+              />
+            ))}
+
+            <Field
+              label="Descripción para tabla de imágenes"
+              canEdit={canEdit}
+              value={form[section.descriptionKey]}
+              onChange={value => set(section.descriptionKey, value)}
+              placeholder="Descripción que irá junto a la fecha arriba de las fotos"
+              rows={2}
+            />
+
+            <div>
+              <label style={{
+                fontSize: 12,
+                fontWeight: 600,
+                color: 'var(--color-text-muted)',
+                display: 'block',
+                marginBottom: 6,
+              }}>
+                Imágenes de la sección
+              </label>
+              <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginBottom: 8 }}>
+                {visitImagesLoading
+                  ? 'Buscando fotos ya registradas para esta fecha...'
+                  : visitImagesError
+                    ? visitImagesError
+                    : `${visitImages[section.key].length} foto(s) cargada(s) automáticamente de la visita.`}
+              </div>
               <input
-                type="time"
-                value={form[f.key]}
+                type="file"
+                accept="image/*"
+                multiple
                 disabled={!canEdit}
-                onChange={e => set(f.key, e.target.value)}
-                style={{
-                  width: '100%', boxSizing: 'border-box',
-                  border: '1.5px solid var(--color-border)',
-                  borderRadius: 'var(--radius-md)',
-                  padding: '10px 12px',
-                  fontSize: 15, fontFamily: 'var(--font-mono)',
-                  color: 'var(--color-text-primary)',
-                  background: 'var(--color-bg)', outline: 'none',
-                  opacity: canEdit ? 1 : 0.65,
+                onChange={event => {
+                  handleAddImages(section.key, event.target.files)
+                  event.currentTarget.value = ''
                 }}
-              />
-            ) : (
-              <textarea
-                value={form[f.key]}
-                disabled={!canEdit}
-                onChange={e => set(f.key, e.target.value)}
-                placeholder={f.placeholder}
-                rows={2}
                 style={{
-                  width: '100%', boxSizing: 'border-box',
-                  border: '1.5px solid var(--color-border)',
+                  width: '100%',
+                  border: '1.5px dashed var(--color-border)',
                   borderRadius: 'var(--radius-md)',
-                  padding: '10px 12px',
-                  fontSize: 14, fontFamily: 'var(--font-sans)',
-                  color: 'var(--color-text-primary)',
+                  padding: 10,
                   background: 'var(--color-bg)',
-                  resize: 'none', outline: 'none',
-                  lineHeight: 1.5,
-                  opacity: canEdit ? 1 : 0.65,
+                  color: 'var(--color-text-muted)',
                 }}
               />
-            )}
-          </div>
+              {reportImages[section.key].length > 0 && (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+                  gap: 8,
+                  marginTop: 10,
+                }}>
+                  {reportImages[section.key].map(image => (
+                    <div key={image.id} style={{ position: 'relative' }}>
+                      <img
+                        src={image.src}
+                        alt={image.name}
+                        style={{
+                          width: '100%',
+                          aspectRatio: '1 / 1',
+                          objectFit: 'cover',
+                          borderRadius: 8,
+                          border: '1px solid var(--color-border)',
+                          display: 'block',
+                        }}
+                      />
+                      <span style={{
+                        position: 'absolute',
+                        left: 4,
+                        bottom: 4,
+                        borderRadius: 999,
+                        padding: '2px 6px',
+                        background: image.source === 'visit' ? 'rgba(56,176,0,.9)' : 'rgba(0,0,0,.62)',
+                        color: '#fff',
+                        fontSize: 10,
+                        fontWeight: 700,
+                      }}>
+                        {image.source === 'visit' ? image.name : 'Manual'}
+                      </span>
+                      {canEdit && image.source === 'manual' && (
+                        <button
+                          onClick={() => removeImage(section.key, image.id)}
+                          title="Quitar imagen"
+                          style={{
+                            position: 'absolute',
+                            top: 4,
+                            right: 4,
+                            width: 24,
+                            height: 24,
+                            borderRadius: '50%',
+                            border: 'none',
+                            background: 'rgba(0,0,0,.62)',
+                            color: '#fff',
+                            fontSize: 14,
+                            lineHeight: '24px',
+                          }}
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
         ))}
       </div>
 
       <div style={{
-        position: 'absolute', bottom: 0, left: 0, right: 0,
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
         background: 'var(--color-surface)',
         borderTop: '1px solid var(--color-border)',
         padding: '12px 16px 24px',
-        display: 'flex', flexDirection: 'column', gap: 8,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
       }}>
         <button
-          onClick={handleWhatsApp}
+          onClick={handlePrintPdf}
+          disabled={generating}
           style={{
-            width: '100%', padding: '13px 0',
-            background: '#25D366', color: '#fff',
-            border: 'none', borderRadius: 'var(--radius-md)',
-            fontSize: 15, fontWeight: 600,
-            cursor: 'pointer', fontFamily: 'var(--font-sans)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-          }}
-        >
-          <span>💬</span> Enviar por WhatsApp
-        </button>
-        <button
-          onClick={handleCopy}
-          style={{
-            width: '100%', padding: '11px 0',
-            background: 'none', color: 'var(--color-text-muted)',
-            border: '1.5px solid var(--color-border)',
+            width: '100%',
+            padding: '13px 0',
+            background: 'var(--color-accent)',
+            color: '#fff',
+            border: 'none',
             borderRadius: 'var(--radius-md)',
-            fontSize: 14, fontWeight: 500,
-            cursor: 'pointer', fontFamily: 'var(--font-sans)',
+            fontSize: 15,
+            fontWeight: 700,
+            cursor: generating ? 'default' : 'pointer',
+            opacity: generating ? 0.7 : 1,
           }}
         >
-          {copied ? '✓ Copiado' : 'Copiar texto'}
+          {generating ? 'Preparando reporte...' : 'Generar PDF con membrete'}
         </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={handleWhatsApp}
+            style={{
+              flex: 1,
+              padding: '11px 0',
+              background: '#25D366',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 'var(--radius-md)',
+              fontSize: 14,
+              fontWeight: 600,
+            }}
+          >
+            WhatsApp texto
+          </button>
+          <button
+            onClick={handleCopy}
+            style={{
+              flex: 1,
+              padding: '11px 0',
+              background: 'none',
+              color: 'var(--color-text-muted)',
+              border: '1.5px solid var(--color-border)',
+              borderRadius: 'var(--radius-md)',
+              fontSize: 14,
+              fontWeight: 600,
+            }}
+          >
+            {copied ? '✓ Copiado' : 'Copiar texto'}
+          </button>
+        </div>
       </div>
     </div>
+  )
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+  canEdit,
+  placeholder,
+  rows,
+  type = 'text',
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  canEdit: boolean
+  placeholder?: string
+  rows?: number
+  type?: 'text' | 'date'
+}) {
+  return (
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-muted)' }}>
+        {label}
+      </span>
+      {rows ? (
+        <textarea
+          value={value}
+          disabled={!canEdit}
+          onChange={event => onChange(event.target.value)}
+          placeholder={placeholder}
+          rows={rows}
+          style={{ ...inputStyle, resize: 'vertical', opacity: canEdit ? 1 : 0.65 }}
+        />
+      ) : (
+        <input
+          type={type}
+          value={value}
+          disabled={!canEdit}
+          onChange={event => onChange(event.target.value)}
+          placeholder={placeholder}
+          style={{ ...inputStyle, opacity: canEdit ? 1 : 0.65 }}
+        />
+      )}
+    </label>
   )
 }
