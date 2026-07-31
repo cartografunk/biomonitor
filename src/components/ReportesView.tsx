@@ -136,7 +136,7 @@ const EMPTY: ReportForm = {
   fecha: TODAY,
   responsable: 'M. en GIC. Omar Carbajar Becerra',
   descripcion_general: 'Esta inspección consta de un recorrido diario en donde se realizan observaciones del ANP y se reportan los aspectos de importancia para su mantenimiento y correcto funcionamiento.',
-  hora_llegada: '08:00',
+  hora_llegada: '7:00 am',
   area_recorrido: 'Circuito completo del ANP.',
   puntos_importancia: 'Áreas prioritarias de extracción de lirio, periferia ANP, cauce principal de ingreso de agua al bordo, orillas del bordo, infraestructura hidráulica de desfogue del bordo y canales pluviales, zona núcleo del ANP.',
   desc_datos_generales: '',
@@ -356,16 +356,40 @@ function sectionFieldsHtml(section: SectionConfig, form: ReportForm) {
 }
 
 function waterHtml(water: WaterReport | null) {
-  const lines = buildWaterBlock(water)
-  if (lines.length === 0) return ''
+  if (!water) return ''
+
+  const rows = [
+    ['Temperatura', water.temperatura_c, '°C'],
+    ['pH', water.ph, ''],
+    ['Conductividad', water.conductividad, 'mS'],
+    ['Sólidos disueltos', water.solidos_disueltos, 'ppt'],
+    ['Oxígeno disuelto', water.oxigeno_disuelto_mgl, 'mg/L'],
+    ['Oxígeno disuelto', water.oxigeno_disuelto_pct, 'OD%'],
+  ].filter(([, value]) => value !== null)
+
+  if (rows.length === 0) return ''
 
   return `
-    <div class="water-box">
-      ${lines.map((line, index) => (
-        index === 0
-          ? `<div class="water-title">${escapeHtml(line)}</div>`
-          : `<div>${escapeHtml(line.replace(/^• /, ''))}</div>`
-      )).join('')}
+    <div class="water-section">
+      <h3>Parámetros fisicoquímicos</h3>
+      <table class="water-table">
+        <thead>
+          <tr>
+            <th>Parámetro</th>
+            <th>Valor registrado</th>
+            <th>Unidad</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(([label, value, unit]) => `
+            <tr>
+              <td>${escapeHtml(String(label))}</td>
+              <td>${escapeHtml(String(value))}</td>
+              <td>${escapeHtml(String(unit))}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
     </div>
   `
 }
@@ -566,16 +590,33 @@ function buildPrintableReport(form: ReportForm, water: WaterReport | null, image
             height: 100%;
             object-fit: contain;
           }
-          .water-box {
-            border: 1px solid #111;
-            padding: 0.08in 0.1in;
-            margin: 0.1in 0 0.16in;
-            font-size: 9pt;
-            line-height: 1.35;
-          }
-          .water-title {
+          h3 {
+            margin: 0 0 0.08in;
+            font-size: 9.5pt;
             font-weight: 700;
-            margin-bottom: 0.04in;
+          }
+          .water-section {
+            margin: 0.12in 0 0.18in;
+          }
+          .water-table {
+            width: 72%;
+            border-collapse: collapse;
+            font-size: 8.8pt;
+          }
+          .water-table th,
+          .water-table td {
+            border: 1px solid #111;
+            padding: 0.045in 0.07in;
+            line-height: 1.2;
+          }
+          .water-table th {
+            background: #e8e8e8;
+            text-align: center;
+            font-weight: 700;
+          }
+          .water-table td:nth-child(2),
+          .water-table td:nth-child(3) {
+            text-align: center;
           }
           .page-number {
             position: absolute;
@@ -930,6 +971,10 @@ export default function ReportesView({
               />
             ))}
 
+            {section.key === 'calidad_agua' && (
+              <WaterReadout water={water} />
+            )}
+
             <Field
               label="Descripción para tabla de imágenes"
               canEdit={canEdit}
@@ -1161,5 +1206,46 @@ function Field({
         />
       )}
     </label>
+  )
+}
+
+function WaterReadout({ water }: { water: WaterReport | null }) {
+  const rows = water
+    ? [
+        ['Temperatura', water.temperatura_c, '°C'],
+        ['pH', water.ph, ''],
+        ['Conductividad', water.conductividad, 'mS'],
+        ['Sólidos disueltos', water.solidos_disueltos, 'ppt'],
+        ['Oxígeno disuelto', water.oxigeno_disuelto_mgl, 'mg/L'],
+        ['Oxígeno disuelto', water.oxigeno_disuelto_pct, 'OD%'],
+      ].filter(([, value]) => value !== null)
+    : []
+
+  return (
+    <div style={{
+      border: '1px solid var(--color-border)',
+      borderRadius: 'var(--radius-md)',
+      background: 'var(--color-bg)',
+      padding: 12,
+    }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: 8 }}>
+        Parámetros fisicoquímicos cargados automáticamente
+      </div>
+      {rows.length === 0 ? (
+        <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
+          Sin parámetros registrados para P4 / Cono Imhoff en la fecha seleccionada.
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 92px 70px', gap: '6px 8px', fontSize: 13 }}>
+          {rows.map(([label, value, unit], index) => (
+            <div key={`${label}-${unit}-${index}`} style={{ display: 'contents' }}>
+              <div style={{ color: 'var(--color-text-muted)' }}>{label}</div>
+              <div style={{ fontWeight: 700, textAlign: 'right' }}>{value}</div>
+              <div style={{ color: 'var(--color-text-muted)' }}>{unit}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
