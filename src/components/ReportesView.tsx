@@ -88,12 +88,27 @@ interface WaterReport {
   oxigeno_disuelto_pct: number | null
 }
 
+type WaterParamKey = keyof WaterReport
+
 interface WaterMeasurementRow extends WaterReport {
   visit_point_records: {
+    visits: {
+      visit_date: string
+    } | null
     fixed_points: {
       point_number: number
     } | null
   } | null
+}
+
+interface WaterHistoryRecord extends WaterReport {
+  visit_date: string
+}
+
+interface WaterParamConfig {
+  key: WaterParamKey
+  label: string
+  unit: string
 }
 
 interface VisitPhotoRow {
@@ -172,6 +187,15 @@ const GATE_OPTIONS = [
   'Compuerta abierta con desfogue.',
   'Compuerta abierta sin desfogue.',
   'Compuerta cerrada.',
+]
+
+const WATER_PARAMS: WaterParamConfig[] = [
+  { key: 'temperatura_c', label: 'Temperatura', unit: '°C' },
+  { key: 'ph', label: 'pH', unit: '' },
+  { key: 'conductividad', label: 'Conductividad', unit: 'mS' },
+  { key: 'solidos_disueltos', label: 'Sólidos disueltos', unit: 'ppt' },
+  { key: 'oxigeno_disuelto_mgl', label: 'Oxígeno disuelto', unit: 'mg/L' },
+  { key: 'oxigeno_disuelto_pct', label: 'Oxígeno disuelto', unit: 'OD%' },
 ]
 
 const SECTION_CONFIGS: SectionConfig[] = [
@@ -288,6 +312,64 @@ function buildWaterBlock(water: WaterReport | null) {
   return lines.length > 1 ? lines : []
 }
 
+function formatMetric(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '—'
+  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, '')
+}
+
+function formatDelta(delta: number | null | undefined) {
+  if (delta === null || delta === undefined || !Number.isFinite(delta)) return '—'
+  if (delta === 0) return '0'
+  const formatted = formatMetric(Math.abs(delta))
+  return `${delta > 0 ? '+' : '-'}${formatted}`
+}
+
+function waterTrend(delta: number | null | undefined) {
+  if (delta === null || delta === undefined || !Number.isFinite(delta)) return { label: '—', className: 'neutral', title: 'Sin toma anterior' }
+  if (delta > 0) return { label: '▲', className: 'up', title: 'Subió' }
+  if (delta < 0) return { label: '▼', className: 'down', title: 'Bajó' }
+  return { label: '—', className: 'neutral', title: 'Sin cambio' }
+}
+
+function getWaterComparisonRows(water: WaterReport | null, history: WaterHistoryRecord[], selectedDate: string) {
+  if (!water) return []
+
+  const previousRows = history
+    .filter(row => row.visit_date < selectedDate)
+    .sort((a, b) => a.visit_date.localeCompare(b.visit_date))
+
+  const previous = previousRows[previousRows.length - 1] ?? null
+
+  return WATER_PARAMS
+    .map(param => {
+      const current = water[param.key]
+      if (current === null) return null
+
+      const previousValue = previous?.[param.key] ?? null
+      const historicalValues = previousRows
+        .map(row => row[param.key])
+        .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+      const historicalAverage = historicalValues.length > 0
+        ? historicalValues.reduce((sum, value) => sum + value, 0) / historicalValues.length
+        : null
+      const delta = previousValue !== null ? current - previousValue : null
+      const trend = waterTrend(delta)
+
+      return {
+        ...param,
+        current,
+        previous: previousValue,
+        previousDate: previous?.visit_date ?? null,
+        delta,
+        trendLabel: trend.label,
+        trendClassName: trend.className,
+        trendTitle: trend.title,
+        historicalAverage,
+      }
+    })
+    .filter((row): row is NonNullable<typeof row> => row !== null)
+}
+
 function buildText(form: ReportForm, water: WaterReport | null): string {
   const lines: string[] = []
   lines.push('Reporte de inspección — Bordo Benito Juárez')
@@ -355,18 +437,8 @@ function sectionFieldsHtml(section: SectionConfig, form: ReportForm) {
     .join('')
 }
 
-function waterHtml(water: WaterReport | null) {
-  if (!water) return ''
-
-  const rows = [
-    ['Temperatura', water.temperatura_c, '°C'],
-    ['pH', water.ph, ''],
-    ['Conductividad', water.conductividad, 'mS'],
-    ['Sólidos disueltos', water.solidos_disueltos, 'ppt'],
-    ['Oxígeno disuelto', water.oxigeno_disuelto_mgl, 'mg/L'],
-    ['Oxígeno disuelto', water.oxigeno_disuelto_pct, 'OD%'],
-  ].filter(([, value]) => value !== null)
-
+function waterHtml(water: WaterReport | null, history: WaterHistoryRecord[], selectedDate: string) {
+  const rows = getWaterComparisonRows(water, history, selectedDate)
   if (rows.length === 0) return ''
 
   return `
@@ -376,16 +448,22 @@ function waterHtml(water: WaterReport | null) {
         <thead>
           <tr>
             <th>Parámetro</th>
-            <th>Valor registrado</th>
+            <th>Valor actual</th>
             <th>Unidad</th>
+            <th>Tendencia</th>
+            <th>Diferencial</th>
+            <th>Promedio histórico</th>
           </tr>
         </thead>
         <tbody>
-          ${rows.map(([label, value, unit]) => `
+          ${rows.map(row => `
             <tr>
-              <td>${escapeHtml(String(label))}</td>
-              <td>${escapeHtml(String(value))}</td>
-              <td>${escapeHtml(String(unit))}</td>
+              <td>${escapeHtml(row.label)}</td>
+              <td>${escapeHtml(formatMetric(row.current))}</td>
+              <td>${escapeHtml(row.unit)}</td>
+              <td class="trend ${row.trendClassName}" title="${escapeHtml(row.trendTitle)}">${escapeHtml(row.trendLabel)}</td>
+              <td class="${row.trendClassName}">${escapeHtml(formatDelta(row.delta))}</td>
+              <td>${escapeHtml(formatMetric(row.historicalAverage))}</td>
             </tr>
           `).join('')}
         </tbody>
@@ -433,7 +511,13 @@ function printablePage(letterheadDataUrl: string, pageNumber: number, content: s
   `
 }
 
-function buildPrintableReport(form: ReportForm, water: WaterReport | null, images: Record<SectionKey, ReportImage[]>, letterheadDataUrl: string) {
+function buildPrintableReport(
+  form: ReportForm,
+  water: WaterReport | null,
+  waterHistory: WaterHistoryRecord[],
+  images: Record<SectionKey, ReportImage[]>,
+  letterheadDataUrl: string
+) {
   let pageNumber = 1
   const pages: string[] = []
   const [firstSection, ...otherSections] = SECTION_CONFIGS
@@ -462,7 +546,7 @@ function buildPrintableReport(form: ReportForm, water: WaterReport | null, image
     pages.push(printablePage(letterheadDataUrl, pageNumber++, `
       <h2>${escapeHtml(section.title)}</h2>
       <ul class="section-list">${sectionFieldsHtml(section, form)}</ul>
-      ${section.key === 'calidad_agua' ? waterHtml(water) : ''}
+      ${section.key === 'calidad_agua' ? waterHtml(water, waterHistory, form.fecha) : ''}
       ${photoGroups[0] ? photosHtml(form, section, photoGroups[0]) : ''}
     `))
 
@@ -599,14 +683,14 @@ function buildPrintableReport(form: ReportForm, water: WaterReport | null, image
             margin: 0.12in 0 0.18in;
           }
           .water-table {
-            width: 72%;
+            width: 100%;
             border-collapse: collapse;
-            font-size: 8.8pt;
+            font-size: 7.8pt;
           }
           .water-table th,
           .water-table td {
             border: 1px solid #111;
-            padding: 0.045in 0.07in;
+            padding: 0.04in 0.045in;
             line-height: 1.2;
           }
           .water-table th {
@@ -615,7 +699,26 @@ function buildPrintableReport(form: ReportForm, water: WaterReport | null, image
             font-weight: 700;
           }
           .water-table td:nth-child(2),
-          .water-table td:nth-child(3) {
+          .water-table td:nth-child(3),
+          .water-table td:nth-child(5),
+          .water-table td:nth-child(6) {
+            text-align: center;
+          }
+          .water-table .up {
+            color: #17883b;
+            font-weight: 700;
+          }
+          .water-table .down {
+            color: #c62828;
+            font-weight: 700;
+          }
+          .water-table .neutral {
+            color: #666;
+            font-weight: 700;
+          }
+          .water-table .trend {
+            font-size: 11pt;
+            line-height: 1;
             text-align: center;
           }
           .page-number {
@@ -670,6 +773,7 @@ export default function ReportesView({
   const [visitImagesLoading, setVisitImagesLoading] = useState(false)
   const [visitImagesError, setVisitImagesError] = useState<string | null>(null)
   const [water, setWater] = useState<WaterReport | null>(null)
+  const [waterHistory, setWaterHistory] = useState<WaterHistoryRecord[]>([])
   const [copied, setCopied] = useState(false)
   const [generating, setGenerating] = useState(false)
   const canEdit = role === 'editor'
@@ -765,21 +869,8 @@ export default function ReportesView({
   useEffect(() => {
     let isMounted = true
 
-    async function loadTodayWater() {
-      const { data: visit } = await supabase
-        .from('visits')
-        .select('id')
-        .eq('visit_date', form.fecha)
-        .single()
-
-      if (!isMounted) return
-
-      if (!visit?.id) {
-        setWater(null)
-        return
-      }
-
-      const { data: rows } = await supabase
+    async function loadWaterHistory() {
+      const { data: rows, error: waterError } = await supabase
         .from('water_measurements')
         .select(`
           temperatura_c,
@@ -788,35 +879,61 @@ export default function ReportesView({
           solidos_disueltos,
           oxigeno_disuelto_mgl,
           oxigeno_disuelto_pct,
-          visit_point_records!inner (
-            visit_id,
+          visit_point_records (
+            visits (
+              visit_date
+            ),
             fixed_points (
               point_number
             )
           )
         `)
-        .eq('visit_point_records.visit_id', visit.id)
 
       if (!isMounted) return
 
-      const p4 = ((rows ?? []) as unknown as WaterMeasurementRow[])
-        .find(row => row.visit_point_records?.fixed_points?.point_number === 4)
+      if (waterError) {
+        setWater(null)
+        setWaterHistory([])
+        return
+      }
 
-      if (p4) {
+      const p4History = ((rows ?? []) as unknown as WaterMeasurementRow[])
+        .map(row => {
+          const visitDate = row.visit_point_records?.visits?.visit_date
+          const pointNumber = row.visit_point_records?.fixed_points?.point_number
+          if (!visitDate || pointNumber !== 4) return null
+
+          return {
+            visit_date: visitDate,
+            temperatura_c: row.temperatura_c,
+            ph: row.ph,
+            conductividad: row.conductividad,
+            solidos_disueltos: row.solidos_disueltos,
+            oxigeno_disuelto_mgl: row.oxigeno_disuelto_mgl,
+            oxigeno_disuelto_pct: row.oxigeno_disuelto_pct,
+          }
+        })
+        .filter((row): row is WaterHistoryRecord => row !== null)
+        .sort((a, b) => a.visit_date.localeCompare(b.visit_date))
+
+      const current = [...p4History].reverse().find(row => row.visit_date === form.fecha)
+      setWaterHistory(p4History)
+
+      if (current) {
         setWater({
-          temperatura_c: p4.temperatura_c,
-          ph: p4.ph,
-          conductividad: p4.conductividad,
-          solidos_disueltos: p4.solidos_disueltos,
-          oxigeno_disuelto_mgl: p4.oxigeno_disuelto_mgl,
-          oxigeno_disuelto_pct: p4.oxigeno_disuelto_pct,
+          temperatura_c: current.temperatura_c,
+          ph: current.ph,
+          conductividad: current.conductividad,
+          solidos_disueltos: current.solidos_disueltos,
+          oxigeno_disuelto_mgl: current.oxigeno_disuelto_mgl,
+          oxigeno_disuelto_pct: current.oxigeno_disuelto_pct,
         })
       } else {
         setWater(null)
       }
     }
 
-    loadTodayWater()
+    loadWaterHistory()
 
     return () => {
       isMounted = false
@@ -879,7 +996,7 @@ export default function ReportesView({
     try {
       const base = import.meta.env.BASE_URL || '/'
       const letterhead = await fetchAsDataUrl(`${base}letterhead-bbj.png`)
-      const printable = buildPrintableReport(form, water, reportImages, letterhead)
+      const printable = buildPrintableReport(form, water, waterHistory, reportImages, letterhead)
       const printWindow = window.open('', '_blank')
 
       if (!printWindow) {
@@ -972,7 +1089,7 @@ export default function ReportesView({
             ))}
 
             {section.key === 'calidad_agua' && (
-              <WaterReadout water={water} />
+              <WaterReadout water={water} history={waterHistory} selectedDate={form.fecha} />
             )}
 
             <Field
@@ -1209,17 +1326,16 @@ function Field({
   )
 }
 
-function WaterReadout({ water }: { water: WaterReport | null }) {
-  const rows = water
-    ? [
-        ['Temperatura', water.temperatura_c, '°C'],
-        ['pH', water.ph, ''],
-        ['Conductividad', water.conductividad, 'mS'],
-        ['Sólidos disueltos', water.solidos_disueltos, 'ppt'],
-        ['Oxígeno disuelto', water.oxigeno_disuelto_mgl, 'mg/L'],
-        ['Oxígeno disuelto', water.oxigeno_disuelto_pct, 'OD%'],
-      ].filter(([, value]) => value !== null)
-    : []
+function WaterReadout({
+  water,
+  history,
+  selectedDate,
+}: {
+  water: WaterReport | null
+  history: WaterHistoryRecord[]
+  selectedDate: string
+}) {
+  const rows = getWaterComparisonRows(water, history, selectedDate)
 
   return (
     <div style={{
@@ -1236,14 +1352,59 @@ function WaterReadout({ water }: { water: WaterReport | null }) {
           Sin parámetros registrados para P4 / Cono Imhoff en la fecha seleccionada.
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 92px 70px', gap: '6px 8px', fontSize: 13 }}>
-          {rows.map(([label, value, unit], index) => (
-            <div key={`${label}-${unit}-${index}`} style={{ display: 'contents' }}>
-              <div style={{ color: 'var(--color-text-muted)' }}>{label}</div>
-              <div style={{ fontWeight: 700, textAlign: 'right' }}>{value}</div>
-              <div style={{ color: 'var(--color-text-muted)' }}>{unit}</div>
-            </div>
-          ))}
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 620 }}>
+            <thead>
+              <tr>
+                {['Parámetro', 'Actual', 'Unidad', 'Tendencia', 'Diferencial', 'Promedio histórico'].map(header => (
+                  <th
+                    key={header}
+                    style={{
+                      textAlign: header === 'Parámetro' ? 'left' : 'center',
+                      color: 'var(--color-text-muted)',
+                      borderBottom: '1px solid var(--color-border)',
+                      padding: '5px 6px',
+                      fontWeight: 700,
+                    }}
+                  >
+                    {header}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(row => {
+                const trendColor = row.trendClassName === 'up'
+                  ? '#17883b'
+                  : row.trendClassName === 'down'
+                    ? '#c62828'
+                    : 'var(--color-text-muted)'
+
+                return (
+                  <tr key={row.key}>
+                    <td style={{ padding: '6px', color: 'var(--color-text-muted)' }}>{row.label}</td>
+                    <td style={{ padding: '6px', textAlign: 'center', fontWeight: 700 }}>{formatMetric(row.current)}</td>
+                    <td style={{ padding: '6px', textAlign: 'center', color: 'var(--color-text-muted)' }}>{row.unit}</td>
+                    <td
+                      title={row.trendTitle}
+                      style={{
+                        padding: '6px',
+                        textAlign: 'center',
+                        color: trendColor,
+                        fontWeight: 900,
+                        fontSize: 16,
+                        lineHeight: 1,
+                      }}
+                    >
+                      {row.trendLabel}
+                    </td>
+                    <td style={{ padding: '6px', textAlign: 'center', color: trendColor, fontWeight: 700 }}>{formatDelta(row.delta)}</td>
+                    <td style={{ padding: '6px', textAlign: 'center', fontWeight: 700 }}>{formatMetric(row.historicalAverage)}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
