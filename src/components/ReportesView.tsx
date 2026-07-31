@@ -122,6 +122,7 @@ interface FieldConfig {
   label: string
   placeholder: string
   rows?: number
+  options?: string[]
 }
 
 interface SectionConfig {
@@ -135,37 +136,43 @@ const EMPTY: ReportForm = {
   fecha: TODAY,
   responsable: 'M. Een GIC. Omar Carbajar Becerra',
   descripcion_general: 'Esta inspección consta de un recorrido diario en donde se realizan observaciones del ANP y se reportan los aspectos de importancia para su mantenimiento y correcto funcionamiento.',
-  hora_llegada: '09:00',
+  hora_llegada: '08:00',
   area_recorrido: 'Circuito completo del ANP.',
   puntos_importancia: 'Áreas prioritarias de extracción de lirio, periferia ANP, cauce principal de ingreso de agua al bordo, orillas del bordo, infraestructura hidráulica de desfogue del bordo y canales pluviales, zona núcleo del ANP.',
-  desc_datos_generales: 'Recorrido diario ANP BBJ',
+  desc_datos_generales: '',
   inicio_jornada: '7:00 am',
   personal_operativo: '2 personas.',
-  area_extraccion: 'Zona Noroeste del bordo.',
-  area_anterior: 'Zona Noreste (extracción de lirio terminada).',
-  areas_prioritarias: 'Zona Noroeste.',
-  desc_mantenimiento: 'Actividades de mantenimiento y extracción de lirio acuático en la Zona Noreste del bordo y área limpia en la zona Noroeste',
+  area_extraccion: '',
+  area_anterior: '',
+  areas_prioritarias: '',
+  desc_mantenimiento: 'Actividades de mantenimiento y extracción de lirio acuático en la Zona',
   ingreso_cauce: 'Con ingreso de agua.',
   olor_agua: 'Agua con olor a agua residual.',
   aspecto_agua: 'Ligera turbidez en el agua.',
-  lodos_precipitables: 'Sin inspección por mantenimiento de equipo.',
+  lodos_precipitables: '',
   ingreso_canales: 'Sin ingreso de agua.',
-  nota_agua: 'No se tomaron muestras de aspecto por mantenimiento de equipo para toma de muestras.',
-  desc_calidad_agua: 'Aspecto del agua que ingresa al bordo. Canales pluviales secundarios sin ingreso de agua.',
+  nota_agua: '',
+  desc_calidad_agua: 'Aspecto del agua que ingresa al bordo',
   estado_orillas: 'Orillas sin acumulación de lirio con incremento de área por la disminución de nivel de agua y superficies fangosas.',
   acumulacion_materiales: 'Zonas (Norte, Noreste y Noroeste) con acumulación excesiva de basura, restos leñosos y madera. Zona (Sur, Suroeste, Este), sin acumulación de residuos. Zona (Sureste), con acumulación de restos leñosos.',
-  desc_zona_litoral: 'Ampliación de área de orillas por disminución del agua del bordo con acumulación de residuos principalmente en zona norte.',
+  desc_zona_litoral: '',
   zona_desmalezado: 'Desmalezado de la periferia completa del ANP.',
   cobertura_desmalezado: '100% de la periferia del ANP.',
   institucion_desmalezado: 'INDEREQ',
   nucleo_desmalezado: 'Pendiente.',
   desc_deshierbe: 'Desmalezado realizado por INDEREQ en la periferia total del ANP.',
-  compuerta_cortina: 'Compuerta abierta sin desfogue por bajo nivel de agua.',
-  obra_toma_alta: 'Compuerta abierta y desfogando.',
-  obra_toma_baja: 'Compuerta abierta y desfogando.',
-  otras_acciones: 'Personal de la CEA realiza jornada de mantenimiento preventivo y limpieza de obra de toma alta y comentan que se programara el transporte de los residuos sólidos extraídos fuera del parque.',
-  desc_infraestructura: 'Compuertas de desfogue en el bordo abiertas.',
+  compuerta_cortina: '',
+  obra_toma_alta: '',
+  obra_toma_baja: '',
+  otras_acciones: '',
+  desc_infraestructura: '',
 }
+
+const GATE_OPTIONS = [
+  'Compuerta abierta con desfogue.',
+  'Compuerta abierta sin desfogue.',
+  'Compuerta cerrada.',
+]
 
 const SECTION_CONFIGS: SectionConfig[] = [
   {
@@ -228,9 +235,9 @@ const SECTION_CONFIGS: SectionConfig[] = [
     title: '6.- Infraestructura hidráulica',
     descriptionKey: 'desc_infraestructura',
     fields: [
-      { key: 'compuerta_cortina', label: 'Estado de la compuerta de la cortina del bordo', placeholder: 'Compuerta abierta...' },
-      { key: 'obra_toma_alta', label: 'Estado de la obra de toma alta', placeholder: 'Compuerta abierta...' },
-      { key: 'obra_toma_baja', label: 'Estado de la obra de toma baja', placeholder: 'Compuerta abierta...' },
+      { key: 'compuerta_cortina', label: 'Estado de la compuerta de la cortina del bordo', placeholder: 'Selecciona el estado de la compuerta', options: GATE_OPTIONS },
+      { key: 'obra_toma_alta', label: 'Estado de la obra de toma alta', placeholder: 'Selecciona el estado de la compuerta', options: GATE_OPTIONS },
+      { key: 'obra_toma_baja', label: 'Estado de la obra de toma baja', placeholder: 'Selecciona el estado de la compuerta', options: GATE_OPTIONS },
       { key: 'otras_acciones', label: 'Otras acciones observadas', placeholder: 'Personal de la CEA...', rows: 3 },
     ],
   },
@@ -919,6 +926,7 @@ export default function ReportesView({
                 onChange={value => set(field.key, value)}
                 placeholder={field.placeholder}
                 rows={field.rows}
+                options={field.options}
               />
             ))}
 
@@ -1104,6 +1112,7 @@ function Field({
   canEdit,
   placeholder,
   rows,
+  options,
   type = 'text',
 }: {
   label: string
@@ -1112,6 +1121,7 @@ function Field({
   canEdit: boolean
   placeholder?: string
   rows?: number
+  options?: string[]
   type?: 'text' | 'date'
 }) {
   return (
@@ -1119,7 +1129,19 @@ function Field({
       <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-muted)' }}>
         {label}
       </span>
-      {rows ? (
+      {options ? (
+        <select
+          value={value}
+          disabled={!canEdit}
+          onChange={event => onChange(event.target.value)}
+          style={{ ...inputStyle, opacity: canEdit ? 1 : 0.65 }}
+        >
+          <option value="">{placeholder ?? 'Selecciona una opción'}</option>
+          {options.map(option => (
+            <option key={option} value={option}>{option}</option>
+          ))}
+        </select>
+      ) : rows ? (
         <textarea
           value={value}
           disabled={!canEdit}
