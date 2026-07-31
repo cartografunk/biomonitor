@@ -324,6 +324,21 @@ function formatDelta(delta: number | null | undefined) {
   return `${delta > 0 ? '+' : '-'}${formatted}`
 }
 
+function formatSigma(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '—'
+  if (value === 0) return '0σ'
+  return `${value > 0 ? '+' : ''}${value.toFixed(2).replace(/\.?0+$/, '')}σ`
+}
+
+function standardDeviation(values: number[]) {
+  if (values.length < 2) return null
+
+  const average = values.reduce((sum, value) => sum + value, 0) / values.length
+  const variance = values.reduce((sum, value) => sum + (value - average) ** 2, 0) / values.length
+  const deviation = Math.sqrt(variance)
+  return deviation > 0 ? deviation : null
+}
+
 function waterTrend(delta: number | null | undefined) {
   if (delta === null || delta === undefined || !Number.isFinite(delta)) return { label: '—', className: 'neutral', title: 'Sin toma anterior' }
   if (delta > 0) return { label: '▲', className: 'up', title: 'Subió' }
@@ -352,6 +367,10 @@ function getWaterComparisonRows(water: WaterReport | null, history: WaterHistory
       const historicalAverage = historicalValues.length > 0
         ? historicalValues.reduce((sum, value) => sum + value, 0) / historicalValues.length
         : null
+      const historicalStdDev = standardDeviation(historicalValues)
+      const sigmaFromHistorical = historicalAverage !== null && historicalStdDev !== null
+        ? (current - historicalAverage) / historicalStdDev
+        : null
       const delta = previousValue !== null ? current - previousValue : null
       const trend = waterTrend(delta)
 
@@ -365,6 +384,8 @@ function getWaterComparisonRows(water: WaterReport | null, history: WaterHistory
         trendClassName: trend.className,
         trendTitle: trend.title,
         historicalAverage,
+        historicalStdDev,
+        sigmaFromHistorical,
       }
     })
     .filter((row): row is NonNullable<typeof row> => row !== null)
@@ -453,6 +474,7 @@ function waterHtml(water: WaterReport | null, history: WaterHistoryRecord[], sel
             <th>Tendencia</th>
             <th>Diferencial</th>
             <th>Promedio histórico</th>
+            <th>σ vs histórico</th>
           </tr>
         </thead>
         <tbody>
@@ -464,6 +486,7 @@ function waterHtml(water: WaterReport | null, history: WaterHistoryRecord[], sel
               <td class="trend ${row.trendClassName}" title="${escapeHtml(row.trendTitle)}">${escapeHtml(row.trendLabel)}</td>
               <td class="${row.trendClassName}">${escapeHtml(formatDelta(row.delta))}</td>
               <td>${escapeHtml(formatMetric(row.historicalAverage))}</td>
+              <td>${escapeHtml(formatSigma(row.sigmaFromHistorical))}</td>
             </tr>
           `).join('')}
         </tbody>
@@ -685,7 +708,7 @@ function buildPrintableReport(
           .water-table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 7.8pt;
+            font-size: 7.2pt;
           }
           .water-table th,
           .water-table td {
@@ -701,7 +724,8 @@ function buildPrintableReport(
           .water-table td:nth-child(2),
           .water-table td:nth-child(3),
           .water-table td:nth-child(5),
-          .water-table td:nth-child(6) {
+          .water-table td:nth-child(6),
+          .water-table td:nth-child(7) {
             text-align: center;
           }
           .water-table .up {
@@ -1353,10 +1377,10 @@ function WaterReadout({
         </div>
       ) : (
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 620 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 760 }}>
             <thead>
               <tr>
-                {['Parámetro', 'Actual', 'Unidad', 'Tendencia', 'Diferencial', 'Promedio histórico'].map(header => (
+                {['Parámetro', 'Actual', 'Unidad', 'Tendencia', 'Diferencial', 'Promedio histórico', 'σ vs histórico'].map(header => (
                   <th
                     key={header}
                     style={{
@@ -1400,6 +1424,12 @@ function WaterReadout({
                     </td>
                     <td style={{ padding: '6px', textAlign: 'center', color: trendColor, fontWeight: 700 }}>{formatDelta(row.delta)}</td>
                     <td style={{ padding: '6px', textAlign: 'center', fontWeight: 700 }}>{formatMetric(row.historicalAverage)}</td>
+                    <td
+                      title={row.historicalStdDev === null ? 'Se necesitan al menos dos tomas históricas con variación para calcularlo.' : 'Desviaciones estándar frente al promedio histórico.'}
+                      style={{ padding: '6px', textAlign: 'center', fontWeight: 700 }}
+                    >
+                      {formatSigma(row.sigmaFromHistorical)}
+                    </td>
                   </tr>
                 )
               })}
